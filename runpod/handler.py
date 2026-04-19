@@ -177,7 +177,7 @@ if __name__ == "__main__":
     logger.info("Inicializando handler Hunyuan3D-2...")
     logger.info("VOLUME_PATH=%s", VOLUME_PATH)
     logger.info("WEIGHTS_PATH=%s", WEIGHTS_PATH)
-    # Download e carregamento ANTES de aceitar jobs — evita timeout por job
-    _load_pipelines()
-    logger.info("Pipelines prontos. Aguardando jobs...")
+    # Inicia IMEDIATAMENTE para registrar heartbeat com o RunPod.
+    # O download + carregamento acontece lazily no primeiro job (handler).
+    logger.info("Registrando worker. Primeiro job fará download/load dos modelos...")
     runpod.serverless.start({"handler": handler})
