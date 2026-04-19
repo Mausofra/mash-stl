@@ -34,9 +34,6 @@ RUN cd hy3dgen/texgen/differentiable_renderer && \
 COPY requirements.txt /tmp/runpod_requirements.txt
 RUN pip install --no-cache-dir -r /tmp/runpod_requirements.txt
 
-# ── Pré-download dos pesos (shape + texture + delight) ──
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='tencent/Hunyuan3D-2', local_dir='/Hunyuan3D-2/weights', ignore_patterns=['*.md', '*.txt', '*.git*']); print('Pesos baixados.')"
-
 # ── Handler ──
 COPY handler.py /handler.py
 
