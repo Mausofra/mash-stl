@@ -21,6 +21,9 @@ WORKDIR /Hunyuan3D-2
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir -e .
 
+# ── Fix compatibilidade: numpy 2.x quebra torch 2.2, diffusers>=0.31 precisa torch.xpu (2.4+) ──
+RUN pip install --no-cache-dir "numpy<2" "diffusers<0.31"
+
 # ── Compila custom rasterizer + differentiable renderer (textura) ──
 RUN cd hy3dgen/texgen/custom_rasterizer && \
     python setup.py install && \
