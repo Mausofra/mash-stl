@@ -31,7 +31,7 @@ RUN cd hy3dgen/texgen/differentiable_renderer && \
     cd /Hunyuan3D-2
 
 # ── RunPod SDK ──
-COPY requirements.txt /tmp/runpod_requirements.txt
+COPY runpod/requirements.txt /tmp/runpod_requirements.txt
 RUN pip install --no-cache-dir -r /tmp/runpod_requirements.txt
 
 # ── Pré-download dos pesos (shape + texture + delight) ──
@@ -45,6 +45,6 @@ RUN python -c "\
     print('Pesos baixados com sucesso.')"
 
 # ── Handler ──
-COPY handler.py /handler.py
+COPY runpod/handler.py /handler.py
 
 CMD ["python", "-u", "/handler.py"]
