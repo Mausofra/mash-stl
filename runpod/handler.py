@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 #  Carrega pipelines uma única vez (warm start)
 # ─────────────────────────────────────────────────────────────
-VOLUME_PATH = os.getenv("VOLUME_PATH", "/weights")
+VOLUME_PATH = os.getenv("VOLUME_PATH", "/runpod-volume")
 WEIGHTS_PATH = os.path.join(VOLUME_PATH, "Hunyuan3D-2")
 HF_REPO = "tencent/Hunyuan3D-2"
 SHAPE_PIPELINE = None
