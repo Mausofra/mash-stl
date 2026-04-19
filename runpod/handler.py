@@ -21,9 +21,28 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 #  Carrega pipelines uma única vez (warm start)
 # ─────────────────────────────────────────────────────────────
-WEIGHTS_PATH = os.getenv("HUNYUAN3D_WEIGHTS", "tencent/Hunyuan3D-2")
+VOLUME_PATH = os.getenv("VOLUME_PATH", "/weights")
+WEIGHTS_PATH = os.path.join(VOLUME_PATH, "Hunyuan3D-2")
+HF_REPO = "tencent/Hunyuan3D-2"
 SHAPE_PIPELINE = None
 PAINT_PIPELINE = None
+
+
+def _ensure_weights():
+    """Baixa pesos para o volume persistente se ainda não existirem."""
+    marker = os.path.join(WEIGHTS_PATH, ".download_complete")
+    if os.path.exists(marker):
+        logger.info("Pesos já existem em %s, pulando download.", WEIGHTS_PATH)
+        return
+    logger.info("Baixando pesos de %s para %s ...", HF_REPO, WEIGHTS_PATH)
+    from huggingface_hub import snapshot_download
+    snapshot_download(
+        repo_id=HF_REPO,
+        local_dir=WEIGHTS_PATH,
+        ignore_patterns=["*.md", "*.txt", "*.git*"],
+    )
+    open(marker, "w").close()
+    logger.info("Pesos baixados com sucesso.")
 
 
 def _load_pipelines():
@@ -32,6 +51,8 @@ def _load_pipelines():
 
     if SHAPE_PIPELINE is not None:
         return
+
+    _ensure_weights()
 
     logger.info("Carregando Hunyuan3D-DiT (shape) de %s ...", WEIGHTS_PATH)
     from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
