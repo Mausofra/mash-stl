@@ -1,12 +1,11 @@
 """
-RunPod Serverless Handler — Hunyuan3D-2 (Shape Only)
+RunPod Serverless Handler — Hunyuan3D-2 (Shape + Textura)
 
 Pipeline:
   1. Recebe imagem base64
   2. Gera mesh (shape) via Hunyuan3D-DiT
-  3. Exporta GLB/OBJ e retorna base64
-
-Nota: Textura via Hunyuan3D-Paint desabilitada até compilar CUDA extensions.
+  3. Gera textura via Hunyuan3D-Paint
+  4. Exporta GLB/OBJ com textura e retorna base64
 """
 import runpod
 import base64
@@ -20,15 +19,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────
-#  Carrega pipeline uma única vez (warm start)
+#  Carrega pipelines uma única vez (warm start)
 # ─────────────────────────────────────────────────────────────
 WEIGHTS_PATH = os.getenv("HUNYUAN3D_WEIGHTS", "tencent/Hunyuan3D-2")
 SHAPE_PIPELINE = None
+PAINT_PIPELINE = None
 
 
 def _load_pipelines():
-    """Carrega shape pipeline na primeira chamada."""
-    global SHAPE_PIPELINE
+    """Carrega shape + texture pipelines na primeira chamada."""
+    global SHAPE_PIPELINE, PAINT_PIPELINE
 
     if SHAPE_PIPELINE is not None:
         return
@@ -40,6 +40,11 @@ def _load_pipelines():
         subfolder="hunyuan3d-dit-v2-0",
     )
     logger.info("Shape pipeline carregado.")
+
+    logger.info("Carregando Hunyuan3D-Paint (textura)...")
+    from hy3dgen.texgen import Hunyuan3DPaintPipeline
+    PAINT_PIPELINE = Hunyuan3DPaintPipeline.from_pretrained(WEIGHTS_PATH)
+    logger.info("Paint pipeline carregado.")
 
 
 def _decode_image(image_b64: str):
@@ -89,11 +94,12 @@ def handler(job):
         return {"error": "Formato inválido. Use 'glb' ou 'obj'."}
 
     num_steps = job_input.get("num_inference_steps", 50)
+    with_texture = job_input.get("texture", True)
 
     output_dir = None
 
     try:
-        # 0. Carrega pipeline (warm start após primeira chamada)
+        # 0. Carrega pipelines (warm start após primeira chamada)
         _load_pipelines()
 
         # 1. Decodifica imagem
@@ -107,6 +113,12 @@ def handler(job):
             num_inference_steps=num_steps,
         )[0]
         logger.info("Shape gerado com sucesso.")
+
+        # 3. Gera textura (alta qualidade)
+        if with_texture and PAINT_PIPELINE is not None:
+            logger.info("Gerando textura...")
+            mesh = PAINT_PIPELINE(mesh, image=image)
+            logger.info("Textura gerada com sucesso.")
 
         # 4. Exporta para o formato solicitado
         output_dir = tempfile.mkdtemp(prefix="hunyuan3d_out_")
