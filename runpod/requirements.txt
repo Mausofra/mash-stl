@@ -1,0 +1,12 @@
+# RunPod SDK
+runpod>=1.7.0
+
+# HuggingFace Hub (download dos pesos)
+huggingface_hub>=0.21.0
+
+# Utilitários
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# Mesh export
+trimesh>=4.0.0
