@@ -173,6 +173,12 @@ def handler(job):
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     logger.info("Inicializando handler Hunyuan3D-2...")
-    _load_pipelines()
-    logger.info("Pipelines prontos. Aguardando jobs...")
+    logger.info("VOLUME_PATH=%s", VOLUME_PATH)
+    logger.info("WEIGHTS_PATH=%s", WEIGHTS_PATH)
+    try:
+        _load_pipelines()
+        logger.info("Pipelines prontos. Aguardando jobs...")
+    except Exception as e:
+        logger.error("Falha ao pré-carregar pipelines no startup: %s", e)
+        logger.warning("Worker iniciará sem pipelines — tentará carregar no primeiro job.")
     runpod.serverless.start({"handler": handler})
