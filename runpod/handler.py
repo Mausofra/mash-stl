@@ -34,6 +34,22 @@ def _ensure_weights():
     if os.path.exists(marker):
         logger.info("Pesos já existem em %s, pulando download.", WEIGHTS_PATH)
         return
+
+    # Remove download incompleto anterior para liberar espaço
+    if os.path.exists(WEIGHTS_PATH):
+        import shutil
+        logger.warning("Download incompleto detectado em %s — removendo para nova tentativa.", WEIGHTS_PATH)
+        shutil.rmtree(WEIGHTS_PATH, ignore_errors=True)
+
+    os.makedirs(WEIGHTS_PATH, exist_ok=True)
+
+    # Verifica espaço disponível antes de baixar (~15GB necessários)
+    import shutil as _shutil
+    free_gb = _shutil.disk_usage(VOLUME_PATH).free / (1024 ** 3)
+    logger.info("Espaço livre em %s: %.1f GB", VOLUME_PATH, free_gb)
+    if free_gb < 14:
+        raise RuntimeError(f"Espaço insuficiente no volume: {free_gb:.1f}GB livres (mínimo 14GB necessários).")
+
     logger.info("Baixando pesos de %s para %s ...", HF_REPO, WEIGHTS_PATH)
     from huggingface_hub import snapshot_download
     snapshot_download(
