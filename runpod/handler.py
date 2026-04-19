@@ -35,12 +35,6 @@ def _ensure_weights():
         logger.info("Pesos já existem em %s, pulando download.", WEIGHTS_PATH)
         return
 
-    # Remove download incompleto anterior para liberar espaço
-    if os.path.exists(WEIGHTS_PATH):
-        import shutil
-        logger.warning("Download incompleto detectado em %s — removendo para nova tentativa.", WEIGHTS_PATH)
-        shutil.rmtree(WEIGHTS_PATH, ignore_errors=True)
-
     os.makedirs(WEIGHTS_PATH, exist_ok=True)
 
     # Verifica espaço disponível antes de baixar (~15GB necessários)
