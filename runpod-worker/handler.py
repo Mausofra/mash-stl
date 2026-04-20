@@ -31,6 +31,10 @@ VOLUME_PATH = os.getenv("VOLUME_PATH", "/runpod-volume")
 WEIGHTS_PATH = os.path.join(VOLUME_PATH, "Hunyuan3D-2")
 HF_REPO = "tencent/Hunyuan3D-2"
 
+# Forca cache do Hugging Face no volume persistente (evita disco efemero).
+os.environ.setdefault("HF_HOME", os.path.join(VOLUME_PATH, ".cache", "huggingface"))
+os.environ.setdefault("HF_HUB_CACHE", os.path.join(VOLUME_PATH, ".cache", "huggingface", "hub"))
+
 # Limites de segurança
 MAX_IMAGE_SIZE_MB = int(os.getenv("MAX_IMAGE_SIZE_MB", "5"))
 MAX_MESH_SIZE_MB = int(os.getenv("MAX_MESH_SIZE_MB", "50"))
@@ -114,7 +118,11 @@ def _ensure_weights():
         snapshot_download(
             repo_id=HF_REPO,
             local_dir=WEIGHTS_PATH,
-            ignore_patterns=["*.md", "*.txt", "*.git*"],
+            ignore_patterns=[
+                "*.md", "*.txt", "*.git*", "*.pdf",
+                "docs/**", "examples/**", "assets/**",
+                "*.mp4", "*.webm", "*.gif",
+            ],
             resume_download=True,
         )
         # Criar marcador para indicar sucesso
@@ -249,7 +257,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         # 0. Verificar espaço em disco antes de começar
-        _check_disk_space(VOLUME_PATH, required_gb=5.0)
+        _check_disk_space(VOLUME_PATH, required_gb=15.0)
         
         # 1. Carrega pipelines (warm start após primeira chamada)
         _load_pipelines()
