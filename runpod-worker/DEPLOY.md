@@ -281,10 +281,68 @@ Caso necessário, volte para InstantMesh:
 2. ✅ GitHub Actions workflow
 3. ✅ Integração com backend
 4. ✅ Scripts de teste
-5. 🔄 Build remoto da imagem
+5. ✅ Build remoto da imagem
 6. 🔄 Criação do endpoint RunPod
 7. 🔄 Validação completa
 8. 🔄 Monitoramento em produção
+
+### Status Atual (19/04/2026)
+
+✅ **Build da Imagem Concluído:**
+- Imagem Docker: `registry.runpod.ai/hunyuan3d-2-worker:7e2a7fe9c43be101e8049d695f35554133ff59891`
+- Tag latest: `registry.runpod.ai/hunyuan3d-2-worker:latest`
+- Workflow ID: 24645776807 (sucesso)
+
+### Próximo Passo Imediato: Criar Endpoint RunPod
+
+1. **Acesse o Console RunPod:**
+   - https://www.runpod.io/console/serverless
+
+2. **Clique em "New Endpoint"**
+
+3. **Configure o Endpoint:**
+   - **Template**: Custom Container
+   - **Container Image**: `registry.runpod.ai/hunyuan3d-2-worker:latest`
+   - **Container Disk**: 20GB
+   - **GPU**: A100 40GB (recomendado) ou A100 80GB
+   - **Max Workers**: 1
+   - **Idle Timeout**: 300 segundos (5 minutos)
+   - **Volume**: `/runpod-volume` com **25GB** (CRÍTICO)
+
+4. **Variáveis de Ambiente:**
+   - `PRELOAD_MODELS=true` (pré-carrega modelos no startup)
+   - `MAX_IMAGE_SIZE_MB=5`
+   - `MAX_MESH_SIZE_MB=50`
+   - `VOLUME_PATH=/runpod-volume`
+
+5. **Salve e Copie a URL:**
+   - URL será: `https://api.runpod.ai/v2/<SEU_ENDPOINT_ID>/runsync`
+   - Adicione ao `.env` como `HUNYUAN3D_RUNPOD_URL`
+
+### Script de Ajuda
+
+Execute para verificar endpoints existentes:
+```bash
+python create_endpoint.py
+```
+
+### Após Criar o Endpoint
+
+1. Atualize o `.env` com a URL do endpoint:
+   ```bash
+   HUNYUAN3D_RUNPOD_URL=https://api.runpod.ai/v2/<SEU_ENDPOINT_ID>/runsync
+   ```
+
+2. Teste a integração completa:
+   ```bash
+   # Inicie o backend
+   cd backend
+   python -m uvicorn main:app --reload --port 8000
+
+   # Teste via frontend ou API
+   ```
+
+3. Monitore os logs no console RunPod para verificar cold start e downloads.
 
 ## Suporte
 
