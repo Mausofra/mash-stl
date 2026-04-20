@@ -74,10 +74,20 @@ jobs:
         run: |
           SHORT_SHA="${GITHUB_SHA::12}"
           RAW_REPO="${{ secrets.RUNPOD_DOCKER_REPO }}"
-          # Aceita secret com ou sem prefixo docker.io e força lowercase para tag válida
           RAW_REPO="${RAW_REPO#docker.io/}"
-          NORMALIZED_REPO="${RAW_REPO,,}"
-          IMAGE_REPO="docker.io/${NORMALIZED_REPO}"
+
+          # Se vier owner/repo, aproveita so o nome do repo para evitar mismatch de permissao.
+          if [[ "$RAW_REPO" == */* ]]; then
+            REPO_NAME="${RAW_REPO#*/}"
+          else
+            REPO_NAME="$RAW_REPO"
+          fi
+
+          NAMESPACE="${{ secrets.DOCKERHUB_USERNAME }}"
+          NAMESPACE="${NAMESPACE,,}"
+          REPO_NAME="${REPO_NAME,,}"
+
+          IMAGE_REPO="docker.io/${NAMESPACE}/${REPO_NAME}"
           echo "image_repo=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
           echo "image_latest=${IMAGE_REPO}:latest" >> "$GITHUB_OUTPUT"
           echo "image_sha=${IMAGE_REPO}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
