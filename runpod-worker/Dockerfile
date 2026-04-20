@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile para Hunyuan3D-2 RunPod Worker
 # Stage 1: Build CUDA extensions
-FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04 AS builder
+FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-ubuntu22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
