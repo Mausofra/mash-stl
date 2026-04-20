@@ -15,9 +15,13 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     ollama_model_vision: str = "qwen2.5vl:3b"
 
-    # RunPod — InstantMesh
+    # RunPod — InstantMesh (legado)
     instantmesh_runpod_url: str = ""   # https://api.runpod.ai/v2/<ID>/runsync
     instantmesh_runpod_key: str = ""
+
+    # RunPod — Hunyuan3D-2 (novo worker principal)
+    hunyuan3d_runpod_url: str = ""     # https://api.runpod.ai/v2/<ID>/runsync
+    hunyuan3d_runpod_key: str = ""
 
     # RunPod — chave geral (fallback)
     runpod_api_key: str = ""
