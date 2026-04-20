@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile para Hunyuan3D-2 RunPod Worker
 # Stage 1: Build CUDA extensions
-FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-ubuntu22.04 AS builder
+FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-devel AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -29,7 +29,7 @@ RUN cd hy3dgen/texgen/custom_rasterizer && python setup.py install
 RUN cd hy3dgen/texgen/differentiable_renderer && python setup.py install
 
 # Stage 2: Runtime image
-FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-runtime-ubuntu22.04
+FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
