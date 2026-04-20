@@ -49,8 +49,12 @@ jobs:
 
       - name: Validate required secrets
         run: |
-          if [ -z "${{ secrets.RUNPOD_API_KEY }}" ]; then
-            echo "RUNPOD_API_KEY secret is required." >&2
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "DOCKERHUB_USERNAME secret is required." >&2
+            exit 1
+          fi
+          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "DOCKERHUB_TOKEN secret is required (use Docker Hub access token)." >&2
             exit 1
           fi
           if [ -z "${{ secrets.RUNPOD_DOCKER_REPO }}" ]; then
@@ -61,15 +65,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to RunPod Registry
+      - name: Login to Docker Hub
         run: |
-          echo "${{ secrets.RUNPOD_API_KEY }}" | docker login registry.runpod.ai -u "${{ secrets.RUNPOD_API_KEY }}" --password-stdin
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Prepare image tags
         id: prep
         run: |
           SHORT_SHA="${GITHUB_SHA::12}"
-          IMAGE_REPO="registry.runpod.ai/${{ secrets.RUNPOD_DOCKER_REPO }}"
+          IMAGE_REPO="docker.io/${{ secrets.RUNPOD_DOCKER_REPO }}"
           echo "image_repo=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
           echo "image_latest=${IMAGE_REPO}:latest" >> "$GITHUB_OUTPUT"
           echo "image_sha=${IMAGE_REPO}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"

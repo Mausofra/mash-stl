@@ -1,351 +1,136 @@
-# Deploy do Worker Hunyuan3D-2 no RunPod
+# Deploy Serverless no RunPod (Passo a Passo Simples)
 
-Este documento descreve como construir, testar e implantar o worker Hunyuan3D-2 no RunPod Serverless.
+Este guia mostra, em linguagem simples, como publicar o worker Hunyuan3D-2 no RunPod usando CI no GitHub.
 
-## Visão Geral
+## Objetivo
 
-O worker implementa o modelo [Hunyuan3D-2 da Tencent](https://github.com/Tencent-Hunyuan/Hunyuan3D-2) para geração de modelos 3D com textura a partir de imagens 2D.
+Você vai fazer 5 etapas:
 
-**Características:**
-- Shape generation via Hunyuan3D-DiT
-- Texture generation via Hunyuan3D-Paint
-- Export GLB/OBJ com textura embutida
-- Volume persistente para cache de pesos (~15GB)
-- Multi-stage Docker build com CUDA
+1. Configurar os secrets no GitHub.
+2. Fazer push para disparar o workflow.
+3. Copiar a imagem gerada no GitHub Actions.
+4. Criar um endpoint serverless no RunPod com essa imagem.
+5. Ligar o backend local nesse endpoint e testar.
 
 ## Pré-requisitos
 
-1. Conta no [RunPod](https://www.runpod.io/) com saldo
-2. Chave API do RunPod (`RUNPOD_API_KEY`)
-3. Repositório GitHub configurado (para CI/CD)
-4. Docker (para build local opcional)
+1. Conta no GitHub com acesso ao repositório.
+2. Conta no RunPod com saldo.
+3. Chave de API do RunPod.
+4. Backend deste projeto rodando localmente.
 
-## 1. Configuração do Ambiente
+## Etapa 1: Configurar Secrets no GitHub
 
-### Variáveis de Ambiente
+No repositório do GitHub, vá em Settings > Secrets and variables > Actions e crie:
 
-No arquivo `.env` do backend, adicione:
+1. RUNPOD_API_KEY
+Valor: sua chave da API do RunPod (começa com rpa_).
 
-```bash
-# InstantMesh (legado, opcional)
-INSTANTMESH_RUNPOD_URL=https://api.runpod.ai/v2/<ID>/runsync
-INSTANTMESH_RUNPOD_KEY=rpa_xxxxx
+2. RUNPOD_DOCKER_REPO
+Valor: usuario-ou-org/hunyuan3d-2-worker
 
-# Hunyuan3D-2 (novo worker principal)
-HUNYUAN3D_RUNPOD_URL=https://api.runpod.ai/v2/<ID>/runsync
-HUNYUAN3D_RUNPOD_KEY=rpa_xxxxx
+Exemplo de valor:
+mausofra/hunyuan3d-2-worker
 
-# Chave geral (fallback)
-RUNPOD_API_KEY=rpa_xxxxx
+## Etapa 2: Disparar o Build no CI
 
-# Timeouts
-RUNPOD_POLL_INTERVAL=5
-RUNPOD_MAX_WAIT=1800
-```
+1. Faça commit das mudanças.
+2. Faça push para main ou master.
+3. Abra a aba Actions do GitHub.
+4. Abra o workflow Build and Deploy RunPod Worker.
+5. Aguarde terminar com sucesso.
 
-### Secrets no GitHub (para CI/CD)
+## Etapa 3: Copiar a Imagem Gerada
 
-Adicione os seguintes secrets no seu repositório GitHub:
-- `RUNPOD_API_KEY` - Chave API do RunPod
-- `RUNPOD_ENDPOINT_ID` (opcional) - ID do endpoint para build remoto
+Quando o workflow terminar:
 
-## 2. Build da Imagem Docker
+1. Entre no job build-and-push.
+2. Veja o resumo final (Step Summary).
+3. Copie a imagem Latest.
 
-### Build Local (requer GPU para compilação CUDA)
+Exemplo:
+docker.io/mausofra/hunyuan3d-2-worker:latest
 
-```bash
-cd runpod-worker
-docker build -t hunyuan3d-2-worker .
-```
+## Etapa 4: Criar Endpoint Serverless no RunPod
 
-**Nota:** O build local pode falhar devido à necessidade de compilar extensões CUDA. Recomendamos usar o build remoto via GitHub Actions.
+1. Acesse o console serverless do RunPod.
+2. Clique em New Endpoint.
+3. Escolha Custom Container.
+4. Em Container Image, cole a imagem copiada da Etapa 3.
+5. Configure recursos mínimos:
 
-### Build Remoto via GitHub Actions
+- GPU: A100 40GB (recomendado).
+- Container Disk: 20 GB.
+- Volume: /runpod-volume com 25 GB.
+- Idle Timeout: 300 segundos.
 
-1. Push do código para o repositório GitHub
-2. O workflow `.github/workflows/build-runpod-worker.yml` será executado automaticamente
-3. A imagem será construída e enviada para o registry do RunPod
+1. Configure variáveis de ambiente no endpoint:
 
-## 3. Criação do Endpoint no RunPod
+- PRELOAD_MODELS=true
+- MAX_IMAGE_SIZE_MB=5
+- MAX_MESH_SIZE_MB=50
+- VOLUME_PATH=/runpod-volume
 
-### Via Console Web
-
-1. Acesse [RunPod Console](https://www.runpod.io/console/serverless)
-2. Clique em "New Endpoint"
-3. Configure:
-   - **Template**: Custom Container
-   - **Container Image**: `registry.runpod.ai/<seu-usuario>/hunyuan3d-2-worker:latest`
-   - **Container Disk**: 20GB (mínimo)
-   - **GPU**: A100 40GB (recomendado) ou A10/A6000
-   - **Max Workers**: 1-2 (dependendo do budget)
-   - **Idle Timeout**: 5-10 minutos
-   - **Volume**: `/runpod-volume` com **25GB** (recomendado para cache eficiente)
-4. Adicione variáveis de ambiente:
-   - `PRELOAD_MODELS=true` (pré-carrega modelos no cold start)
-   - `MAX_IMAGE_SIZE_MB=5`
-   - `MAX_MESH_SIZE_MB=50`
-5. Salve e anote a URL do endpoint
+1. Salve o endpoint.
+2. Copie a URL runsync do endpoint criado.
 
-### Otimização para Volume de 25GB
+Formato da URL:
+[URL runsync de exemplo](https://api.runpod.ai/v2/SEU_ENDPOINT_ID/runsync)
 
-Com um volume de 25GB, você tem espaço suficiente para:
+## Etapa 5: Ligar Backend ao Endpoint
 
-1. **Pesos do modelo**: ~15GB (Hunyuan3D-2)
-2. **Cache temporário**: ~5GB (arquivos intermediários)
-3. **Espaço livre**: ~5GB (para operações seguras)
+No arquivo .env da raiz do projeto, preencha:
 
-O handler está otimizado para:
-- Verificar espaço em disco antes de cada execução
-- Limpar cache antigo automaticamente se espaço ficar abaixo de 5GB
-- Usar cache persistente para evitar re-downloads
-- Logar uso de espaço para monitoramento
+    HUNYUAN3D_RUNPOD_URL=https://api.runpod.ai/v2/SEU_ENDPOINT_ID/runsync
+    HUNYUAN3D_RUNPOD_KEY=sua_chave_rpa
+    RUNPOD_API_KEY=sua_chave_rpa
+    RUNPOD_MAX_WAIT=1800
 
-### Via CLI (opcional)
+## Etapa 6: Testar de Ponta a Ponta
 
-```bash
-# Instale o RunPod CLI
-pip install runpod
+1. Suba o backend.
+2. Envie uma imagem pelo frontend.
+3. Verifique se o job muda para completed.
+4. Faça download do arquivo gerado.
 
-# Configure sua chave API
-export RUNPOD_API_KEY="rpa_xxxxx"
+## Comandos úteis
 
-# Crie o endpoint
-runpodctl endpoint create \
-  --name "hunyuan3d-2-worker" \
-  --image "registry.runpod.ai/<seu-usuario>/hunyuan3d-2-worker:latest" \
-  --gpu-type "NVIDIA A100-SXM4-40GB" \
-  --gpu-count 1 \
-  --disk-size 20 \
-  --idle-timeout 300 \
-  --env "PRELOAD_MODELS=true" \
-  --volume "/runpod-volume:20"
-```
-
-## 4. Testes
-
-### Teste do Handler
-
-```bash
-cd runpod-worker
-python test_handler.py
-```
-
-Para testes mais completos (requer GPU e pesos):
-```bash
-python test_handler.py --full
-```
-
-### Teste da Imagem Docker
-
-```bash
-# Build local
-docker build -t hunyuan3d-test .
-
-# Executar interativamente
-docker run --rm -it --gpus all hunyuan3d-test bash
-
-# Testar handler dentro do container
-python /handler.py
-```
-
-### Teste da API
-
-Use o arquivo `test_image.png` do diretório raiz:
-
-```bash
-# Codificar imagem em base64
-python -c "import base64; print(base64.b64encode(open('test_image.png', 'rb').read()).decode()[:100] + '...')"
-
-# Enviar para o endpoint (substitua URL)
-curl -X POST \
-  -H "Authorization: Bearer $RUNPOD_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "image": "<base64>",
-      "format": "glb",
-      "texture": true,
-      "num_inference_steps": 50,
-      "guidance_scale": 7.0,
-      "octree_resolution": 256
-    }
-  }' \
-  "https://api.runpod.ai/v2/<ENDPOINT_ID>/runsync"
-```
-
-## 5. Integração com o Backend
-
-### Atualização do Backend
-
-O backend já foi atualizado para suportar ambos os workers:
-
-```python
-from services.runpod import generate_mesh, generate_mesh_hunyuan3d
-
-# Usar Hunyuan3D-2 (padrão)
-mesh_bytes = await generate_mesh(image_bytes)
-
-# Usar InstantMesh (legado)
-mesh_bytes = await generate_mesh(image_bytes, use_hunyuan3d=False)
-
-# Parâmetros avançados Hunyuan3D-2
-mesh_bytes = await generate_mesh_hunyuan3d(
-    image_bytes,
-    format="glb",
-    texture=True,
-    num_inference_steps=100,
-    guidance_scale=7.0,
-    octree_resolution=256
-)
-```
-
-### Configuração do Router
-
-O router `backend/routers/generate.py` usa `generate_mesh()` que por padrão utiliza Hunyuan3D-2.
-
-## 6. Monitoramento e Troubleshooting
-
-### Logs do Worker
-
-Acesse os logs no console do RunPod ou via CLI:
-
-```bash
-runpodctl endpoint logs <endpoint-id>
-```
-
-### Métricas Importantes
-
-1. **Cold Start Time**: 2-5 minutos (download de pesos)
-2. **Inference Time**: 30-90 segundos por imagem
-3. **VRAM Usage**: ~20GB (A100 40GB recomendado)
-4. **Disk Usage**: ~15GB para pesos + 5GB temporário
-
-### Problemas Comuns
-
-#### Cold Start Muito Lento
-- Configure `PRELOAD_MODELS=true` no endpoint
-- Use volume persistente para cache de pesos
-- Considere manter 1 worker sempre ativo
-
-#### Falha na Compilação CUDA
-- Use a imagem base `runpod/pytorch` oficial
-- Verifique `TORCH_CUDA_ARCH_LIST` no Dockerfile
-- Build remoto via GitHub Actions geralmente resolve
-
-#### Erro de Memória GPU
-- Reduza `octree_resolution` para 128
-- Reduza `num_inference_steps` para 50
-- Use GPU com mais VRAM (A100 40GB)
-
-#### Timeout da API
-- Aumente `RUNPOD_MAX_WAIT` no .env
-- Configure timeout maior no endpoint RunPod
-
-#### Espaço em Disco Insuficiente
-- Verifique logs para ver uso atual do volume
-- O handler limpa cache automaticamente abaixo de 5GB
-- Considere aumentar o volume para 30GB se usar cache extensivo
-- Monitore logs: "Espaço em disco em /runpod-volume: X.GB livre de Y.GB total"
-
-## 7. Otimização de Custos
-
-### Estratégias
-
-1. **Volume Persistente**: Cache de pesos reduz cold start
-2. **Idle Timeout**: 5-10 minutos balanceia custo/performance
-3. **Max Workers**: Limite conforme demanda
-4. **GPU Selection**: A10 mais barato que A100 para testes
-
-### Estimativa de Custo
-
-- A100 40GB: ~$1.10/hora por worker
-- Cold start: ~3 minutos = $0.055 por cold start
-- Inference: ~1 minuto = $0.018 por imagem
-
-**Custo mensal estimado (1000 imagens):**
-- 1000 inferências: $18.00
-- 50 cold starts: $2.75
-- **Total: ~$20-25/mês**
-
-## 8. Rollback para InstantMesh
-
-Caso necessário, volte para InstantMesh:
-
-1. No `.env`, use apenas `INSTANTMESH_RUNPOD_URL`
-2. No código, chame `generate_mesh(image_bytes, use_hunyuan3d=False)`
-3. Ou configure `HUNYUAN3D_RUNPOD_URL` vazio
-
-## 9. Próximos Passos
-
-1. ✅ Dockerfile multi-stage otimizado
-2. ✅ GitHub Actions workflow
-3. ✅ Integração com backend
-4. ✅ Scripts de teste
-5. ✅ Build remoto da imagem
-6. 🔄 Criação do endpoint RunPod
-7. 🔄 Validação completa
-8. 🔄 Monitoramento em produção
-
-### Status Atual (19/04/2026)
-
-✅ **Build da Imagem Concluído:**
-- Imagem Docker: `registry.runpod.ai/hunyuan3d-2-worker:7e2a7fe9c43be101e8049d695f35554133ff59891`
-- Tag latest: `registry.runpod.ai/hunyuan3d-2-worker:latest`
-- Workflow ID: 24645776807 (sucesso)
-
-### Próximo Passo Imediato: Criar Endpoint RunPod
-
-1. **Acesse o Console RunPod:**
-   - https://www.runpod.io/console/serverless
-
-2. **Clique em "New Endpoint"**
-
-3. **Configure o Endpoint:**
-   - **Template**: Custom Container
-   - **Container Image**: `registry.runpod.ai/hunyuan3d-2-worker:latest`
-   - **Container Disk**: 20GB
-   - **GPU**: A100 40GB (recomendado) ou A100 80GB
-   - **Max Workers**: 1
-   - **Idle Timeout**: 300 segundos (5 minutos)
-   - **Volume**: `/runpod-volume` com **25GB** (CRÍTICO)
-
-4. **Variáveis de Ambiente:**
-   - `PRELOAD_MODELS=true` (pré-carrega modelos no startup)
-   - `MAX_IMAGE_SIZE_MB=5`
-   - `MAX_MESH_SIZE_MB=50`
-   - `VOLUME_PATH=/runpod-volume`
-
-5. **Salve e Copie a URL:**
-   - URL será: `https://api.runpod.ai/v2/<SEU_ENDPOINT_ID>/runsync`
-   - Adicione ao `.env` como `HUNYUAN3D_RUNPOD_URL`
-
-### Script de Ajuda
-
-Execute para verificar endpoints existentes:
-```bash
+Ver endpoints existentes:
 python create_endpoint.py
-```
 
-### Após Criar o Endpoint
+Filtrar por nome:
+python create_endpoint.py --name hunyuan3d-2-worker
 
-1. Atualize o `.env` com a URL do endpoint:
-   ```bash
-   HUNYUAN3D_RUNPOD_URL=https://api.runpod.ai/v2/<SEU_ENDPOINT_ID>/runsync
-   ```
+Testar endpoint por ID:
+python create_endpoint.py --test-id SEU_ENDPOINT_ID
 
-2. Teste a integração completa:
-   ```bash
-   # Inicie o backend
-   cd backend
-   python -m uvicorn main:app --reload --port 8000
+## Problemas comuns
 
-   # Teste via frontend ou API
-   ```
+1. Workflow falha no GitHub.
+Causa comum: secret faltando.
+Verifique RUNPOD_API_KEY e RUNPOD_DOCKER_REPO.
 
-3. Monitore os logs no console RunPod para verificar cold start e downloads.
+2. Endpoint retorna erro de autenticação.
+Causa comum: chave inválida.
+Confira HUNYUAN3D_RUNPOD_KEY e RUNPOD_API_KEY.
 
-## Suporte
+3. Job demora muito no primeiro teste.
+Normal no primeiro cold start.
+O worker pode baixar modelos e levar alguns minutos.
 
-- Issues: [GitHub Repo](https://github.com/Mausofra/mash-stl)
-- RunPod: [Documentação](https://docs.runpod.io/)
-- Hunyuan3D-2: [Repositório Oficial](https://github.com/Tencent-Hunyuan/Hunyuan3D-2)
+4. Erro de espaço em disco.
+Aumente o volume para 30 GB.
+
+## Resumo rápido
+
+1. Configurar secrets no GitHub.
+2. Fazer push e aguardar Actions.
+3. Copiar imagem publicada.
+4. Criar endpoint serverless no RunPod.
+5. Atualizar .env com URL e chave.
+6. Testar pelo frontend.
+
+## Referências
+
+- [RunPod Serverless Console](https://www.runpod.io/console/serverless)
+- [Repositório do modelo Hunyuan3D-2](https://github.com/Tencent-Hunyuan/Hunyuan3D-2)
