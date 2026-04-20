@@ -73,7 +73,11 @@ jobs:
         id: prep
         run: |
           SHORT_SHA="${GITHUB_SHA::12}"
-          IMAGE_REPO="docker.io/${{ secrets.RUNPOD_DOCKER_REPO }}"
+          RAW_REPO="${{ secrets.RUNPOD_DOCKER_REPO }}"
+          # Aceita secret com ou sem prefixo docker.io e força lowercase para tag válida
+          RAW_REPO="${RAW_REPO#docker.io/}"
+          NORMALIZED_REPO="${RAW_REPO,,}"
+          IMAGE_REPO="docker.io/${NORMALIZED_REPO}"
           echo "image_repo=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
           echo "image_latest=${IMAGE_REPO}:latest" >> "$GITHUB_OUTPUT"
           echo "image_sha=${IMAGE_REPO}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
