@@ -43,8 +43,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 libgomp1 git wget curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar Python packages compilados do builder
-COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+# Copiar ambiente Python/Conda compilado do builder
+COPY --from=builder /opt/conda /opt/conda
 COPY --from=builder /Hunyuan3D-2 /Hunyuan3D-2
 
 # Instalar SDK do RunPod e dependências mínimas
