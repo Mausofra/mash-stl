@@ -28,7 +28,9 @@ RUN pip install --no-cache-dir "numpy<2" "diffusers<0.31"
 RUN cd hy3dgen/texgen/custom_rasterizer && python setup.py install
 RUN cd hy3dgen/texgen/differentiable_renderer && python setup.py install
 
+# ─────────────────────────────────────────────────────────────
 # Stage 2: Runtime image
+# ─────────────────────────────────────────────────────────────
 FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -43,11 +45,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 libgomp1 git wget curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar Python packages compilados do builder
-COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+# Copiar apenas as extensões CUDA compiladas do builder
+# (evita conflito entre ambientes Conda do builder e do runtime)
+COPY --from=builder /opt/conda/lib/python3.10/site-packages/custom_rasterizer* \
+    /opt/conda/lib/python3.10/site-packages/
+COPY --from=builder /opt/conda/lib/python3.10/site-packages/differentiable_renderer* \
+    /opt/conda/lib/python3.10/site-packages/
+
+# Copiar código-fonte do Hunyuan3D-2 (sem os pacotes Python)
 COPY --from=builder /Hunyuan3D-2 /Hunyuan3D-2
 
-# Instalar SDK do RunPod e dependências mínimas
+# Reinstalar dependências no ambiente runtime (correto e limpo)
+RUN pip install --no-cache-dir -r /Hunyuan3D-2/requirements.txt && \
+    pip install --no-cache-dir "numpy<2" "diffusers<0.31" && \
+    pip install --no-cache-dir -e /Hunyuan3D-2
+
+# Instalar SDK do RunPod
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
@@ -58,7 +71,7 @@ RUN mkdir -p /runpod-volume
 # Copiar handler
 COPY handler.py /handler.py
 
-# Definir workdir para Hunyuan3D-2 (para imports relativos)
+# Workdir aponta para o repositório (necessário para imports relativos do hy3dgen)
 WORKDIR /Hunyuan3D-2
 
 # Limpeza final
