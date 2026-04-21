@@ -45,15 +45,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 libgomp1 git wget curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar apenas as extensões CUDA compiladas do builder
-# (evita conflito entre ambientes Conda do builder e do runtime)
-COPY --from=builder /opt/conda/lib/python3.10/site-packages/custom_rasterizer* \
-    /opt/conda/lib/python3.10/site-packages/
-COPY --from=builder /opt/conda/lib/python3.10/site-packages/differentiable_renderer* \
-    /opt/conda/lib/python3.10/site-packages/
-
-# Copiar código-fonte do Hunyuan3D-2 (sem os pacotes Python)
+# Copiar código-fonte do Hunyuan3D-2
 COPY --from=builder /Hunyuan3D-2 /Hunyuan3D-2
+
+# Copiar extensões CUDA compiladas do builder
+# pytorch/pytorch usa /usr/local/lib, não /opt/conda
+COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 
 # Reinstalar dependências no ambiente runtime (correto e limpo)
 RUN pip install --no-cache-dir -r /Hunyuan3D-2/requirements.txt && \
