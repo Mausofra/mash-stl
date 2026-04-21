@@ -28,6 +28,10 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Install minimal dependencies for validation
+        run: |
+          pip install runpod huggingface_hub Pillow "numpy<2" trimesh pygltflib
+
       - name: Validate handler syntax
         run: |
           python -m py_compile runpod-worker/handler.py
@@ -36,7 +40,7 @@ jobs:
       - name: Lint Dockerfile (non-blocking)
         continue-on-error: true
         run: |
-          docker run --rm -i hadolint/hadolint < runpod-worker/Dockerfile.optimized
+          docker run --rm -i hadolint/hadolint < runpod-worker/Dockerfile
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -76,7 +80,6 @@ jobs:
           RAW_REPO="${{ secrets.RUNPOD_DOCKER_REPO }}"
           RAW_REPO="${RAW_REPO#docker.io/}"
 
-          # Se vier owner/repo, aproveita so o nome do repo para evitar mismatch de permissao.
           if [[ "$RAW_REPO" == */* ]]; then
             REPO_NAME="${RAW_REPO#*/}"
           else
@@ -96,7 +99,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: runpod-worker
-          file: runpod-worker/Dockerfile.optimized
+          file: runpod-worker/Dockerfile
           push: true
           tags: |
             ${{ steps.prep.outputs.image_latest }}
