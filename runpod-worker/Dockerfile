@@ -28,6 +28,11 @@ RUN pip install --no-cache-dir "numpy<2" "diffusers<0.31"
 RUN cd hy3dgen/texgen/custom_rasterizer && python setup.py install
 RUN cd hy3dgen/texgen/differentiable_renderer && python setup.py install
 
+# Exportar site-packages para caminho fixo e conhecido
+RUN SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
+    echo "site-packages em: $SITE" && \
+    cp -r "$SITE" /builder-site-packages
+
 # ─────────────────────────────────────────────────────────────
 # Stage 2: Runtime image
 # ─────────────────────────────────────────────────────────────
@@ -48,11 +53,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copiar código-fonte do Hunyuan3D-2
 COPY --from=builder /Hunyuan3D-2 /Hunyuan3D-2
 
-# Copiar extensões CUDA compiladas do builder
-# pytorch/pytorch usa /usr/local/lib, não /opt/conda
-COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+# Copiar site-packages do builder para o caminho correto do runtime
+COPY --from=builder /builder-site-packages /usr/local/lib/python3.10/dist-packages
 
-# Reinstalar dependências no ambiente runtime (correto e limpo)
+# Reinstalar dependências no ambiente runtime (garante consistência)
 RUN pip install --no-cache-dir -r /Hunyuan3D-2/requirements.txt && \
     pip install --no-cache-dir "numpy<2" "diffusers<0.31" && \
     pip install --no-cache-dir -e /Hunyuan3D-2
