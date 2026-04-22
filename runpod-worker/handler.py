@@ -27,6 +27,7 @@ import shutil
 import zipfile
 import threading
 import uuid
+import urllib.request
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -157,17 +158,28 @@ def _load_pipelines():
             WEIGHTS_PATH, subfolder="hunyuan3d-dit-v2-1", device="cuda", torch_dtype=torch.float16
         )
 
-        # Usando a nova estrutura de pastas (hy3dpaint)
-        from hy3dpaint.pipelines import Hunyuan3DPaintPipeline
-        PAINT_PIPELINE = Hunyuan3DPaintPipeline.from_pretrained(
-            WEIGHTS_PATH, subfolder="hunyuan3d-paint-v2-1", device="cuda", torch_dtype=torch.float16
+        # --- CARREGAMENTO DO PIPELINE DE TEXTURA (v2.1) ---
+        from textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
+        
+        # O pipeline de textura da v2.1 exige o modelo RealESRGAN_x4plus para upscale
+        esrgan_path = os.path.join(os.getcwd(), 'hy3dpaint', 'ckpt', 'RealESRGAN_x4plus.pth')
+        if not os.path.exists(esrgan_path):
+            os.makedirs(os.path.dirname(esrgan_path), exist_ok=True)
+            logger.info("Baixando RealESRGAN para o pipeline de textura PBR...")
+            urllib.request.urlretrieve("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth", esrgan_path)
+
+        # Instancia o novo pipeline de pintura com a configuração oficial
+        PAINT_PIPELINE = Hunyuan3DPaintPipeline(
+            Hunyuan3DPaintConfig(max_num_view=6, resolution=1024)
         )
 
-        # Ajuste: Offload apenas para GPUs com menos de 20GB.
+        # Ajuste: Offload para GPUs menores (protegendo contra erros caso a função não exista)
         if torch.cuda.is_available() and total_vram < 20.0:
             logger.info("VRAM < 20GB. Ativando CPU offload para evitar Out of Memory.")
-            SHAPE_PIPELINE.enable_model_cpu_offload()
-            PAINT_PIPELINE.enable_model_cpu_offload()
+            if hasattr(SHAPE_PIPELINE, 'enable_model_cpu_offload'):
+                SHAPE_PIPELINE.enable_model_cpu_offload()
+            if hasattr(PAINT_PIPELINE, 'enable_model_cpu_offload'):
+                PAINT_PIPELINE.enable_model_cpu_offload()
         else:
             logger.info("VRAM abundante. Mantendo modelos inteiramente na GPU.")
 
@@ -256,9 +268,12 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
     octree_resolution = job_input.get("octree_resolution", 256)
     
     with_texture = job_input.get("texture", True)
-    texture_resolution = job_input.get("texture_resolution", 1024)
-    tiled = job_input.get("tiled", False)
-    pbr = job_input.get("pbr", True)
+    
+    # Parâmetros removidos temporariamente da inferência de textura PBR 
+    # pois a classe Hunyuan3DPaintPipeline padrão assume o controle por config.
+    # texture_resolution = job_input.get("texture_resolution", 1024)
+    # tiled = job_input.get("tiled", False)
+    # pbr = job_input.get("pbr", True)
 
     output_dir = None
 
@@ -280,9 +295,18 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
             if with_texture and PAINT_PIPELINE is not None:
                 logger.info("Aplicando textura PBR...")
-                mesh = PAINT_PIPELINE(
-                    mesh, image=image, texture_resolution=texture_resolution, tiled=tiled, pbr=pbr
-                )
+                # A v2.1 exige caminhos físicos para a imagem de referência e a malha crua
+                temp_work_dir = tempfile.mkdtemp()
+                temp_img_path = os.path.join(temp_work_dir, "input_ref.png")
+                temp_mesh_path = os.path.join(temp_work_dir, "shape_raw.obj")
+                
+                image.save(temp_img_path)
+                mesh.export(temp_mesh_path)
+                
+                # Executa a pintura PBR
+                mesh = PAINT_PIPELINE(temp_mesh_path, image_path=temp_img_path)
+                
+                shutil.rmtree(temp_work_dir, ignore_errors=True)
 
         output_dir = tempfile.mkdtemp(prefix="hunyuan3d_out_")
         mesh_path = _export_mesh(mesh, output_format, output_dir)
