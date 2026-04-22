@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libosmesa6-dev libglfw3-dev libgles2-mesa-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m venv /opt/venv
+# Criar VENV herdando o PyTorch (CUDA 12.1) já instalado na imagem base
+RUN python -m venv --system-site-packages /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # CORREÇÃO CRÍTICA: Apontando para o repositório oficial da v2.1
