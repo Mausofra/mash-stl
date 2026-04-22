@@ -1,15 +1,13 @@
-# Multi-stage Dockerfile para Hunyuan3D-2.1 RunPod Worker
-# ─────────────────────────────────────────────────────────────
-# Stage 1: Build CUDA extensions e Dependências
-# ─────────────────────────────────────────────────────────────
+# Stage 1: Build CUDA extensions e Dependências (Blindado)
 FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9;9.0+PTX" \
-    FORCE_CUDA=1
+    FORCE_CUDA=1 \
+    MAX_JOBS=1 \
+    PIP_NO_CACHE_DIR=1
 
-# Instalar dependências de sistema para compilação (incluindo bibliotecas gráficas)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git wget curl \
     libgl1 libglib2.0-0 libgomp1 \
@@ -17,46 +15,52 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libosmesa6-dev libglfw3-dev libgles2-mesa-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Criar e ativar Virtual Environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Clonar repositório oficial (branch main, pois não há tags de versão)
 RUN git clone --depth 1 --branch main https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /Hunyuan3D-2.1
 WORKDIR /Hunyuan3D-2.1
 
-# Atualizar pip, setuptools e wheel
 RUN pip install --upgrade pip setuptools wheel
 
-# Limpar o requirements.txt oficial para evitar conflitos e compilações desnecessárias
-RUN if [ -f requirements.txt ]; then \
-    sed -i -e '/^torch/d' \
-    -e '/^torchvision/d' \
-    -e '/^torchaudio/d' \
-    -e '/xformers/d' \
-    -e '/flash-attn/d' \
-    -e '/triton/d' \
-    requirements.txt ; \
-    fi
-
-# Instalar primeiro as restrições de compatibilidade (para que prevaleçam)
+# Restrições de compatibilidade
 RUN pip install --no-cache-dir "numpy<2" "diffusers<0.31"
 
-# Instalar as dependências restantes do modelo (limpas)
-RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
+# Cirurgia no requirements.txt oficial
+RUN tr -d '\r' < requirements.txt > req_clean.txt && \
+    sed -i -E '/^(torch|torchvision|torchaudio|xformers|flash-attn|flash_attn|triton)/Id' req_clean.txt && \
+    sed -i 's/bpy==4\.0/bpy/g' req_clean.txt
 
-# Copiar requirements customizado (runpod, boto3, etc) e instalar no VENV
+# Instalação segura (preferir binários, sem compilações pesadas)
+RUN pip install --no-cache-dir --prefer-binary --retries 5 --timeout 120 -r req_clean.txt
+
+# Instalar manualmente alguns extras úteis (opcional)
+RUN pip install --no-cache-dir \
+    accelerate \
+    transformers \
+    einops \
+    omegaconf \
+    trimesh \
+    pygltflib \
+    Pillow \
+    huggingface_hub \
+    tqdm \
+    matplotlib \
+    scipy \
+    opencv-python-headless
+
+# Requirements customizados (runpod, boto3)
 COPY requirements.txt /tmp/custom_reqs.txt
 RUN pip install --no-cache-dir -r /tmp/custom_reqs.txt
 
-# Instalar o pacote do modelo em modo editável (dentro do VENV)
-RUN pip install --no-cache-dir -e .
+# Instalar hy3dgen sem reinstalar dependências
+RUN pip install --no-cache-dir --no-deps -e .
 
-# Compilar extensões CUDA (textura) dentro do VENV
+# Compilar extensões CUDA (textura)
 RUN cd hy3dgen/texgen/custom_rasterizer && python setup.py install
 RUN cd hy3dgen/texgen/differentiable_renderer && python setup.py install
 
-# Limpeza de cache para reduzir tamanho do VENV
+# Limpeza
 RUN pip cache purge && \
     find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
