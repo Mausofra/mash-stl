@@ -8,11 +8,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     MAX_JOBS=1 \
     PIP_NO_CACHE_DIR=1
 
+# Ajuste: Adicionadas bibliotecas X11 (libxrender1 libxext6 libxi6) para o motor do Blender (bpy)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git wget curl \
     libgl1 libglib2.0-0 libgomp1 \
     ninja-build build-essential \
     libosmesa6-dev libglfw3-dev libgles2-mesa-dev \
+    libxrender1 libxext6 libxi6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar VENV herdando o PyTorch (CUDA 12.1) já instalado na imagem base
@@ -77,8 +79,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PRELOAD_MODELS=false
 
 # Instalar APENAS bibliotecas de sistema necessárias para execução
+# Ajuste: Adicionadas bibliotecas X11 (libxrender1 libxext6 libxi6) para o runtime do Blender
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 libgomp1 wget curl \
+    libxrender1 libxext6 libxi6 \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
 
 # Copiar o VENV completo (com todas as dependências e binários compilados)
