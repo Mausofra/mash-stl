@@ -1,13 +1,17 @@
 # RunPod SDK
 runpod>=1.7.0
 
-# HuggingFace Hub (download dos pesos)
+# Infra e Armazenamento (Hugging Face + Cloudflare R2)
 huggingface_hub>=0.21.0
+boto3>=1.34.0
+botocore>=1.34.0
 
-# Utilitários
+# Processamento de Imagem e Malha 3D
 Pillow>=10.0.0
-numpy>=1.24.0,<2
-
-# Mesh export
 trimesh>=4.0.0
-pygltflib>=1.15.0   # backend GLB mais robusto para o trimesh
+pygltflib>=1.15.0
+
+# Fix de compatibilidade para o Hunyuan3D-2.1 e Offload
+numpy>=1.24.0,<2
+diffusers>=0.29.0,<0.31
+accelerate>=0.26.0,<0.28.0

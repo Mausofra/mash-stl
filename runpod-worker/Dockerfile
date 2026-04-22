@@ -18,9 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Clonar repositório oficial (branch v2.1.0)
-RUN git clone --depth 1 --branch v2.1.0 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /Hunyuan3D-2
-WORKDIR /Hunyuan3D-2
+# Clonar repositório oficial (branch main)
+RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /Hunyuan3D-2
 
 # Atualizar pip e instalar dependências do modelo dentro do VENV
 RUN pip install --upgrade pip && \

@@ -1,10 +1,11 @@
 """
-RunPod Serverless Handler — Hunyuan3D-2 (Shape + Textura)
+RunPod Serverless Handler — Hunyuan3D-2.1 (Shape + Textura PBR)
 Pipeline:
   1. Recebe imagem base64
-  2. Gera mesh (shape) via Hunyuan3D-DiT
-  3. Gera textura via Hunyuan3D-Paint
-  4. Exporta GLB/OBJ com textura e retorna base64
+  2. Gera mesh (shape) via Hunyuan3D-DiT v2.1
+  3. Gera textura PBR via Hunyuan3D-Paint v2.1
+  4. Exporta GLB/OBJ e faz upload para Cloudflare R2 (S3)
+  5. Retorna URL pré-assinada (Pre-signed URL) válida por 24h
 """
 import runpod
 import base64
@@ -15,185 +16,166 @@ import logging
 import shutil
 import zipfile
 import threading
+import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 import torch
+import boto3
+from botocore.exceptions import ClientError
 from PIL import Image
+from huggingface_hub import snapshot_download
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────
-# Configurações globais (podem vir de variáveis de ambiente)
+# Configurações globais de Infraestrutura
 # ─────────────────────────────────────────────────────────────
 VOLUME_PATH = os.getenv("VOLUME_PATH", "/runpod-volume")
-WEIGHTS_PATH = os.path.join(VOLUME_PATH, "Hunyuan3D-2")
-HF_REPO = "tencent/Hunyuan3D-2"
+WEIGHTS_PATH = os.path.join(VOLUME_PATH, "Hunyuan3D-2.1")
+HF_REPO = "tencent/Hunyuan3D-2.1"
+HF_TOKEN = os.getenv("HF_TOKEN")  # Apenas para acelerar/autenticar o download dos pesos
 
-# Forca cache do Hugging Face no volume persistente (evita disco efemero).
+# Força cache do Hugging Face no volume persistente
 os.environ.setdefault("HF_HOME", os.path.join(VOLUME_PATH, ".cache", "huggingface"))
 os.environ.setdefault("HF_HUB_CACHE", os.path.join(VOLUME_PATH, ".cache", "huggingface", "hub"))
 
 # Limites de segurança
 MAX_IMAGE_SIZE_MB = int(os.getenv("MAX_IMAGE_SIZE_MB", "5"))
-MAX_MESH_SIZE_MB = int(os.getenv("MAX_MESH_SIZE_MB", "50"))
+MAX_MESH_SIZE_MB = int(os.getenv("MAX_MESH_SIZE_MB", "100"))
 
-# Pipelines globais (carregadas lazy)
+# ─────────────────────────────────────────────────────────────
+# Configurações do Cloudflare R2 (S3 API)
+# ─────────────────────────────────────────────────────────────
+R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL")  # Ex: https://<account_id>.r2.cloudflarestorage.com
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "hunyuan-outputs")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+s3_client = None
+if all([R2_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY]):
+    s3_client = boto3.client(
+        's3',
+        endpoint_url=R2_ENDPOINT_URL,
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        region_name="auto"  # Padrão recomendado para Cloudflare R2
+    )
+else:
+    logger.warning("Credenciais do Cloudflare R2 incompletas. O upload falhará na inferência.")
+
+# Pipelines globais e Locks
 SHAPE_PIPELINE: Optional[Any] = None
 PAINT_PIPELINE: Optional[Any] = None
-
-# Lock para thread safety no carregamento das pipelines
 _pipeline_lock = threading.Lock()
+_inference_lock = threading.Lock()
+
 
 # ─────────────────────────────────────────────────────────────
-# Funções auxiliares
+# Funções auxiliares de Infra e Download
 # ─────────────────────────────────────────────────────────────
-def _check_disk_space(path: str, required_gb: float = 15.0) -> bool:
-    """Verifica se há espaço em disco suficiente."""
-    # Garante que o diretório existe antes de verificar
+def _check_disk_space(path: str, required_gb: float = 20.0) -> bool:
     os.makedirs(path, exist_ok=True)
-
     usage = shutil.disk_usage(path)
     free_gb = usage.free / (1024**3)
-    total_gb = usage.total / (1024**3)
-
-    logger.info(f"Espaço em disco em {path}: {free_gb:.1f}GB livre de {total_gb:.1f}GB total")
-
+    logger.info(f"Espaço em disco em {path}: {free_gb:.1f}GB livre")
     if free_gb < required_gb:
-        logger.error(f"Espaço insuficiente em {path}: {free_gb:.1f}GB livre, necessário {required_gb}GB")
+        logger.error(f"Espaço insuficiente: {free_gb:.1f}GB livre, necessário {required_gb}GB")
         return False
     return True
 
-
 def _cleanup_old_cache_if_needed(path: str, min_free_gb: float = 5.0):
-    """Limpa cache antigo se espaço livre estiver abaixo do mínimo."""
+    # Lógica mantida: apaga cache antigo se disco estiver cheio
     usage = shutil.disk_usage(path)
-    free_gb = usage.free / (1024**3)
-
-    if free_gb >= min_free_gb:
+    if (usage.free / (1024**3)) >= min_free_gb:
         return
-
-    logger.warning(f"Espaço livre baixo ({free_gb:.1f}GB), verificando cache para limpeza...")
-
     cache_dir = Path(path) / "cache"
     if cache_dir.exists():
         try:
-            files = list(cache_dir.rglob("*"))
-            files.sort(key=lambda x: x.stat().st_mtime)
-
-            freed_gb = 0
+            files = sorted(list(cache_dir.rglob("*")), key=lambda x: x.stat().st_mtime)
             for file in files[:10]:
                 if file.is_file():
-                    size_gb = file.stat().st_size / (1024**3)
-                    try:
-                        file.unlink()
-                        freed_gb += size_gb
-                        logger.info(f"Removido cache antigo: {file.name} ({size_gb:.2f}GB)")
-                    except Exception as e:
-                        logger.warning(f"Erro ao remover {file}: {e}")
-
-            if freed_gb > 0:
-                logger.info(f"Liberados {freed_gb:.2f}GB de espaço em cache")
+                    file.unlink()
         except Exception as e:
             logger.error(f"Erro ao limpar cache: {e}")
 
-
 def _ensure_weights():
-    """Baixa pesos para o volume persistente com retry e verificação de integridade."""
     marker = os.path.join(WEIGHTS_PATH, ".download_complete")
     if os.path.exists(marker):
-        logger.info("Pesos já existem em %s, pulando download.", WEIGHTS_PATH)
         return
 
     os.makedirs(WEIGHTS_PATH, exist_ok=True)
+    if not _check_disk_space(WEIGHTS_PATH, required_gb=20.0):
+        _cleanup_old_cache_if_needed(VOLUME_PATH, min_free_gb=20.0)
+        if not _check_disk_space(WEIGHTS_PATH, required_gb=20.0):
+            raise RuntimeError("Espaço em disco insuficiente para baixar os modelos.")
 
-    if not _check_disk_space(WEIGHTS_PATH, required_gb=15.0):
-        logger.warning("Espaço insuficiente, tentando limpar cache...")
-        _cleanup_old_cache_if_needed(VOLUME_PATH, min_free_gb=15.0)
-
-        if not _check_disk_space(WEIGHTS_PATH, required_gb=15.0):
-            raise RuntimeError("Espaço em disco insuficiente para baixar os modelos mesmo após limpeza de cache.")
-
-    logger.info("Baixando/retomando pesos de %s para %s ...", HF_REPO, WEIGHTS_PATH)
-    from huggingface_hub import snapshot_download
+    logger.info("Baixando pesos de %s para %s ...", HF_REPO, WEIGHTS_PATH)
     try:
         snapshot_download(
             repo_id=HF_REPO,
             local_dir=WEIGHTS_PATH,
-            ignore_patterns=[
-                "*.md", "*.txt", "*.git*", "*.pdf",
-                "docs/**", "examples/**", "assets/**",
-                "*.mp4", "*.webm", "*.gif",
-            ],
+            ignore_patterns=["*.md", "*.txt", "*.git*", "*.pdf", "docs/**", "examples/**", "assets/**", "*.mp4", "*.webm", "*.gif"],
             resume_download=True,
+            token=HF_TOKEN,
         )
         open(marker, "w").close()
-        logger.info("Pesos baixados com sucesso.")
     except Exception as e:
-        logger.exception("Falha no download dos pesos. Limpando diretório parcial...")
         shutil.rmtree(WEIGHTS_PATH, ignore_errors=True)
         raise RuntimeError(f"Download dos pesos falhou: {e}")
 
-
+# ─────────────────────────────────────────────────────────────
+# IA e Processamento
+# ─────────────────────────────────────────────────────────────
 def _load_pipelines():
-    """Carrega shape + texture pipelines na primeira chamada (thread-safe via lock global)."""
     global SHAPE_PIPELINE, PAINT_PIPELINE
-
-    # FIX: lock garante que apenas uma thread carrega as pipelines
     with _pipeline_lock:
         if SHAPE_PIPELINE is not None:
             return
 
+        logger.info("=== INÍCIO DO CARREGAMENTO DOS PIPELINES v2.1 ===")
+        total_vram = 0.0
+        if torch.cuda.is_available():
+            total_vram = torch.cuda.get_device_properties(0).total_memory / 1e9
+            logger.info(f"GPU: {torch.cuda.get_device_name(0)} | VRAM: {total_vram:.1f} GB")
+
         _ensure_weights()
 
-        logger.info("Carregando Hunyuan3D-DiT (shape) de %s ...", WEIGHTS_PATH)
         from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
         SHAPE_PIPELINE = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            WEIGHTS_PATH,
-            subfolder="hunyuan3d-dit-v2-0",
-            device="cuda",
-            torch_dtype=torch.float16,
+            WEIGHTS_PATH, subfolder="hunyuan3d-dit-v2-1", device="cuda", torch_dtype=torch.float16
         )
-        logger.info("Shape pipeline carregado.")
 
-        logger.info("Carregando Hunyuan3D-Paint (textura)...")
         from hy3dgen.texgen import Hunyuan3DPaintPipeline
         PAINT_PIPELINE = Hunyuan3DPaintPipeline.from_pretrained(
-            WEIGHTS_PATH,
-            device="cuda",
-            torch_dtype=torch.float16,
+            WEIGHTS_PATH, subfolder="hunyuan3d-paint-v2-1", device="cuda", torch_dtype=torch.float16
         )
-        logger.info("Paint pipeline carregado.")
 
+        # Ajuste: Offload apenas para GPUs com menos de 20GB (ex: A4000, L4).
+        # RTX 3090/4090 (24GB) e A100 (40/80GB) rodarão nativamente na VRAM para maior velocidade.
+        if torch.cuda.is_available() and total_vram < 20.0:
+            logger.info("VRAM < 20GB. Ativando CPU offload para evitar Out of Memory.")
+            SHAPE_PIPELINE.enable_model_cpu_offload()
+            PAINT_PIPELINE.enable_model_cpu_offload()
+        else:
+            logger.info("VRAM abundante. Mantendo modelos inteiramente na GPU.")
 
 def _decode_image(image_b64: str) -> Image.Image:
-    """Decodifica base64 para PIL Image com validação de tamanho."""
-    # FIX: decodifica primeiro para medir tamanho real (base64 infla ~33%)
     try:
         image_bytes = base64.b64decode(image_b64)
-    except Exception:
-        raise ValueError("Base64 inválido — não foi possível decodificar a imagem.")
-
-    if len(image_bytes) > MAX_IMAGE_SIZE_MB * 1024 * 1024:
-        raise ValueError(f"Imagem excede limite de {MAX_IMAGE_SIZE_MB}MB")
-
-    try:
+        if len(image_bytes) > MAX_IMAGE_SIZE_MB * 1024 * 1024:
+            raise ValueError(f"Imagem excede limite de {MAX_IMAGE_SIZE_MB}MB")
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except Exception:
-        raise ValueError("Dados decodificados não são uma imagem válida (PNG/JPG esperado).")
-
-    # Redimensiona se muito grande
-    max_dim = 1024
-    if max(img.size) > max_dim:
-        img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
-        logger.info("Imagem redimensionada para %s", img.size)
-
-    return img
-
+        
+        max_dim = 1024
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        return img
+    except Exception as e:
+        raise ValueError(f"Falha na decodificação da imagem: {e}")
 
 def _export_mesh(mesh, output_format: str, output_dir: str) -> Path:
-    """Exporta trimesh para o formato solicitado. Para OBJ, cria ZIP com MTL e textura se houver."""
     output_path = Path(output_dir) / f"output.{output_format}"
     mesh.export(str(output_path))
 
@@ -204,7 +186,7 @@ def _export_mesh(mesh, output_format: str, output_dir: str) -> Path:
             mtl_path = output_path.with_suffix('.mtl')
             if mtl_path.exists():
                 zipf.write(mtl_path, arcname="model.mtl")
-            # FIX: acessa textura via API correta do trimesh
+            
             if hasattr(mesh, 'visual') and hasattr(mesh.visual, 'material'):
                 material = mesh.visual.material
                 if hasattr(material, 'image') and material.image is not None:
@@ -212,154 +194,114 @@ def _export_mesh(mesh, output_format: str, output_dir: str) -> Path:
                     material.image.save(str(texture_path))
                     zipf.write(texture_path, arcname="texture.png")
         return zip_path
-
     return output_path
 
+# ─────────────────────────────────────────────────────────────
+# Integração Cloudflare R2
+# ─────────────────────────────────────────────────────────────
+def _upload_to_r2_and_get_url(file_path: Path, expiration_seconds: int = 86400) -> str:
+    """Faz upload do arquivo para o Cloudflare R2 e retorna uma Pre-signed URL."""
+    if s3_client is None:
+        raise RuntimeError("Cliente S3 (Cloudflare R2) não foi inicializado. Verifique as credenciais.")
+
+    object_name = f"outputs/{uuid.uuid4()}_{file_path.name}"
+    
+    try:
+        logger.info(f"Enviando {file_path.name} para o bucket R2: {R2_BUCKET_NAME}/{object_name}")
+        s3_client.upload_file(str(file_path), R2_BUCKET_NAME, object_name)
+        
+        # Gera a URL de download seguro, válida por padrão por 24 horas
+        presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': R2_BUCKET_NAME, 'Key': object_name},
+            ExpiresIn=expiration_seconds
+        )
+        logger.info("Upload concluído com sucesso.")
+        return presigned_url
+    except ClientError as e:
+        logger.error(f"Erro na comunicação com o Cloudflare R2: {e}")
+        raise RuntimeError(f"Falha no upload para o R2: {e}")
 
 def _cleanup_gpu():
-    """Libera memória GPU não utilizada."""
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
-
 
 # ─────────────────────────────────────────────────────────────
 # Handler principal
 # ─────────────────────────────────────────────────────────────
 def handler(job: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Handler principal do RunPod Serverless.
-
-    Input esperado:
-        {
-            "input": {
-                "image": "<base64 da imagem PNG/JPG>",
-                "format": "glb",            // opcional, "glb" ou "obj"
-                "texture": true,            // opcional, default true
-                "num_inference_steps": 100, // opcional
-                "guidance_scale": 7.0,      // opcional
-                "octree_resolution": 256    // opcional
-            }
-        }
-
-    Output:
-        {
-            "mesh_b64": "<base64 do arquivo 3D>",
-            "format": "glb",
-            "filename": "output.glb"
-        }
-    """
     job_input = job.get("input", {})
 
-    # Validação da imagem
     image_b64 = job_input.get("image")
     if not image_b64:
-        return {"error": "Campo 'image' obrigatório (base64 de imagem PNG/JPG)."}
+        return {"error": "Campo 'image' obrigatório."}
 
-    # Validação do formato
     output_format = job_input.get("format", "glb").lower()
     if output_format not in ("glb", "obj"):
         return {"error": "Formato inválido. Use 'glb' ou 'obj'."}
 
-    # Validação dos parâmetros numéricos
     num_steps = job_input.get("num_inference_steps", 100)
-    if not isinstance(num_steps, int) or not (1 <= num_steps <= 500):
-        return {"error": "'num_inference_steps' deve ser inteiro entre 1 e 500."}
-
     guidance_scale = job_input.get("guidance_scale", 7.0)
-    if not isinstance(guidance_scale, (int, float)) or not (1.0 <= guidance_scale <= 20.0):
-        return {"error": "'guidance_scale' deve ser número entre 1.0 e 20.0."}
-
     octree_resolution = job_input.get("octree_resolution", 256)
-    if not isinstance(octree_resolution, int) or octree_resolution not in (128, 256, 512):
-        return {"error": "'octree_resolution' deve ser 128, 256 ou 512."}
-
+    
     with_texture = job_input.get("texture", True)
+    texture_resolution = job_input.get("texture_resolution", 1024)
+    tiled = job_input.get("tiled", False)
+    pbr = job_input.get("pbr", True)
 
     output_dir = None
 
     try:
-        # FIX: verificação de disco agora bloqueia o job se espaço insuficiente
-        if not _check_disk_space(VOLUME_PATH, required_gb=15.0):
-            return {"error": "Espaço em disco insuficiente para processar o job."}
+        if not _check_disk_space(VOLUME_PATH, required_gb=20.0):
+            return {"error": "Espaço em disco insuficiente."}
 
-        # Carrega pipelines (warm start após primeira chamada)
         _load_pipelines()
-
-        # Decodifica imagem
         image = _decode_image(image_b64)
-        logger.info("Imagem decodificada: %s", image.size)
 
-        # Gera shape (mesh sem textura)
-        logger.info("Gerando shape (steps=%d, guidance=%.1f, octree=%d)...",
-                    num_steps, guidance_scale, octree_resolution)
-        mesh = SHAPE_PIPELINE(
-            image=image,
-            num_inference_steps=num_steps,
-            guidance_scale=guidance_scale,
-            octree_resolution=octree_resolution,
-        )[0]
-        logger.info("Shape gerado com sucesso.")
+        with _inference_lock:
+            logger.info("Iniciando inferência 3D...")
+            mesh = SHAPE_PIPELINE(
+                image=image,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance_scale,
+                octree_resolution=octree_resolution,
+            )[0]
 
-        # Gera textura
-        if with_texture and PAINT_PIPELINE is not None:
-            logger.info("Gerando textura...")
-            mesh = PAINT_PIPELINE(mesh, image=image)
-            logger.info("Textura gerada com sucesso.")
+            if with_texture and PAINT_PIPELINE is not None:
+                logger.info("Aplicando textura PBR...")
+                mesh = PAINT_PIPELINE(
+                    mesh, image=image, texture_resolution=texture_resolution, tiled=tiled, pbr=pbr
+                )
 
-        # Exporta para o formato solicitado
         output_dir = tempfile.mkdtemp(prefix="hunyuan3d_out_")
         mesh_path = _export_mesh(mesh, output_format, output_dir)
+        
+        # Ajuste: Atualiza o formato de retorno caso seja um ZIP empacotado (OBJ)
+        returned_format = "zip" if output_format == "obj" else output_format
 
-        # Verifica tamanho do arquivo gerado
         file_size_mb = mesh_path.stat().st_size / (1024 * 1024)
         if file_size_mb > MAX_MESH_SIZE_MB:
-            raise ValueError(f"Arquivo gerado ({file_size_mb:.1f}MB) excede limite de {MAX_MESH_SIZE_MB}MB")
+            raise ValueError(f"Arquivo gerado ({file_size_mb:.1f}MB) muito grande.")
 
-        # Codifica em base64
-        with open(mesh_path, "rb") as f:
-            mesh_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-        # Ajusta formato retornado para ZIP quando OBJ
-        returned_format = "zip" if (output_format == "obj") else output_format
-
-        logger.info("Mesh exportado: %s (%.1f MB)", mesh_path.name, file_size_mb)
+        # Upload Cloudflare R2
+        mesh_url = _upload_to_r2_and_get_url(mesh_path)
 
         return {
-            "mesh_b64": mesh_b64,
+            "mesh_url": mesh_url,
             "format": returned_format,
             "filename": mesh_path.name,
         }
 
     except Exception as exc:
-        logger.exception("Erro durante geração do mesh")
-        return {
-            "error": str(exc),
-            "error_type": type(exc).__name__
-        }
+        logger.exception("Erro durante geração")
+        return {"error": str(exc), "error_type": type(exc).__name__}
 
     finally:
         if output_dir and os.path.isdir(output_dir):
             shutil.rmtree(output_dir, ignore_errors=True)
         _cleanup_gpu()
 
-
-# ─────────────────────────────────────────────────────────────
-# Entrypoint
-# ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    logger.info("Inicializando handler Hunyuan3D-2...")
-    logger.info("VOLUME_PATH=%s", VOLUME_PATH)
-    logger.info("WEIGHTS_PATH=%s", WEIGHTS_PATH)
-    logger.info("MAX_IMAGE_SIZE_MB=%d, MAX_MESH_SIZE_MB=%d", MAX_IMAGE_SIZE_MB, MAX_MESH_SIZE_MB)
-
-    if os.getenv("PRELOAD_MODELS", "false").lower() == "true":
-        logger.info("Pré-carregando pipelines (pode levar vários minutos)...")
-        try:
-            _load_pipelines()
-            logger.info("Pipelines pré-carregados com sucesso.")
-        except Exception as e:
-            logger.error("Falha no pré-carregamento: %s", e)
-
-    logger.info("Registrando worker...")
-    runpod.serverless.start({"handler": handler})
+    logger.info("Inicializando worker Serverless...")
+    runpod.serverless.start({"handler": handler, "refresh_worker": False})
