@@ -7,11 +7,21 @@ Pipeline:
   4. Exporta GLB/OBJ e faz upload para Cloudflare R2 (S3)
   5. Retorna URL pré-assinada (Pre-signed URL) válida por 24h
 """
+import sys
+import os
+
+# ─────────────────────────────────────────────────────────────
+# Fix de Arquitetura Hunyuan3D v2.1
+# Injeta as pastas da nova arquitetura no PATH do Python 
+# para que os imports funcionem localmente sem o setup.py
+# ─────────────────────────────────────────────────────────────
+sys.path.insert(0, os.path.join(os.getcwd(), 'hy3dshape'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'hy3dpaint'))
+
 import runpod
 import base64
 import io
 import tempfile
-import os
 import logging
 import shutil
 import zipfile
@@ -86,7 +96,6 @@ def _check_disk_space(path: str, required_gb: float = 20.0) -> bool:
     return True
 
 def _cleanup_old_cache_if_needed(path: str, min_free_gb: float = 5.0):
-    # Lógica mantida: apaga cache antigo se disco estiver cheio
     usage = shutil.disk_usage(path)
     if (usage.free / (1024**3)) >= min_free_gb:
         return
@@ -142,18 +151,19 @@ def _load_pipelines():
 
         _ensure_weights()
 
-        from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
+        # Usando a nova estrutura de pastas (hy3dshape)
+        from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
         SHAPE_PIPELINE = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
             WEIGHTS_PATH, subfolder="hunyuan3d-dit-v2-1", device="cuda", torch_dtype=torch.float16
         )
 
-        from hy3dgen.texgen import Hunyuan3DPaintPipeline
+        # Usando a nova estrutura de pastas (hy3dpaint)
+        from hy3dpaint.pipelines import Hunyuan3DPaintPipeline
         PAINT_PIPELINE = Hunyuan3DPaintPipeline.from_pretrained(
             WEIGHTS_PATH, subfolder="hunyuan3d-paint-v2-1", device="cuda", torch_dtype=torch.float16
         )
 
-        # Ajuste: Offload apenas para GPUs com menos de 20GB (ex: A4000, L4).
-        # RTX 3090/4090 (24GB) e A100 (40/80GB) rodarão nativamente na VRAM para maior velocidade.
+        # Ajuste: Offload apenas para GPUs com menos de 20GB.
         if torch.cuda.is_available() and total_vram < 20.0:
             logger.info("VRAM < 20GB. Ativando CPU offload para evitar Out of Memory.")
             SHAPE_PIPELINE.enable_model_cpu_offload()
