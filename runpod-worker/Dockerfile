@@ -9,24 +9,41 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9;9.0+PTX" \
     FORCE_CUDA=1
 
-# Instalar dependências de sistema para compilação
+# Instalar dependências de sistema para compilação (incluindo bibliotecas gráficas)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git wget curl libgl1 libglib2.0-0 libgomp1 ninja-build build-essential \
+    git wget curl \
+    libgl1 libglib2.0-0 libgomp1 \
+    ninja-build build-essential \
+    libosmesa6-dev libglfw3-dev libgles2-mesa-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar e ativar Virtual Environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Clonar repositório oficial (branch main)
-RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /Hunyuan3D-2
+# Clonar repositório oficial (branch main, pois não há tags de versão)
+RUN git clone --depth 1 --branch main https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /Hunyuan3D-2.1
+WORKDIR /Hunyuan3D-2.1
 
-# Atualizar pip e instalar dependências do modelo dentro do VENV
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Atualizar pip, setuptools e wheel
+RUN pip install --upgrade pip setuptools wheel
 
-# Fix de compatibilidade (necessário para diffusers)
+# Limpar o requirements.txt oficial para evitar conflitos e compilações desnecessárias
+RUN if [ -f requirements.txt ]; then \
+    sed -i -e '/^torch/d' \
+    -e '/^torchvision/d' \
+    -e '/^torchaudio/d' \
+    -e '/xformers/d' \
+    -e '/flash-attn/d' \
+    -e '/triton/d' \
+    requirements.txt ; \
+    fi
+
+# Instalar primeiro as restrições de compatibilidade (para que prevaleçam)
 RUN pip install --no-cache-dir "numpy<2" "diffusers<0.31"
+
+# Instalar as dependências restantes do modelo (limpas)
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
 
 # Copiar requirements customizado (runpod, boto3, etc) e instalar no VENV
 COPY requirements.txt /tmp/custom_reqs.txt
@@ -65,20 +82,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /opt/venv /opt/venv
 
 # Copiar código-fonte do Hunyuan3D-2.1
-COPY --from=builder /Hunyuan3D-2 /Hunyuan3D-2
+COPY --from=builder /Hunyuan3D-2.1 /Hunyuan3D-2.1
 
 # Criar diretório do volume persistente
 RUN mkdir -p /runpod-volume
 
 # Copiar handler para dentro do diretório do modelo
-COPY handler.py /Hunyuan3D-2/handler.py
+COPY handler.py /Hunyuan3D-2.1/handler.py
 
 # Definir diretório de trabalho
-WORKDIR /Hunyuan3D-2
+WORKDIR /Hunyuan3D-2.1
 
-# Testar o handler para garantir que o modelo e dependências estão funcionando corretamente
-COPY test_handler.py /Hunyuan3D-2/test_handler.py
-RUN python /Hunyuan3D-2/test_handler.py
+# Testar o handler (validação estrutural)
+COPY test_handler.py /Hunyuan3D-2.1/test_handler.py
+RUN python /Hunyuan3D-2.1/test_handler.py
 
 # Comando de inicialização
-CMD ["python", "-u", "/Hunyuan3D-2/handler.py"]
+CMD ["python", "-u", "/Hunyuan3D-2.1/handler.py"]
