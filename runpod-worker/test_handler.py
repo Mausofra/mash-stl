@@ -11,15 +11,10 @@ import inspect
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# Mock de dependências pesadas antes de qualquer import do handler
-# (torch, huggingface_hub não estão disponíveis no ambiente de CI)
-for _mod in ["torch", "torch.cuda", "huggingface_hub", "botocore"]:
+# Mock apenas do que não está instalado no CI (torch e huggingface_hub)
+# botocore/boto3 estão instalados e não devem ser mockados
+for _mod in ["torch", "torch.cuda", "huggingface_hub"]:
     sys.modules[_mod] = MagicMock()
-
-# ClientError precisa ser uma exceção real (usada em bloco except)
-_botocore_exc = MagicMock()
-_botocore_exc.ClientError = type("ClientError", (Exception,), {})
-sys.modules["botocore.exceptions"] = _botocore_exc
 
 def run_tests():
     print("🧪 Iniciando bateria de testes estruturais do Handler...\n")
