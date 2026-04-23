@@ -39,7 +39,7 @@ def run_tests():
     try:
         from PIL import Image
         import io
-        img = Image.new('RGB', (10, 10), color='red')
+        img = Image.new('RGBA', (10, 10), color=(255, 0, 0, 255))
         img_byte_arr = io.BytesIO()
         img.save(img_byte_arr, format='PNG')
         fake_b64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')

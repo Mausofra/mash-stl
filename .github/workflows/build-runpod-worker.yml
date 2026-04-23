@@ -26,11 +26,11 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Validate handler syntax
-        run: |
-          # Valida apenas o handler principal. 
-          # O test_handler foi removido para evitar quebra de importações da v2.1
-          python -m py_compile runpod-worker/handler.py
+      - name: Install test dependencies
+        run: pip install runpod boto3 Pillow
+
+      - name: Run handler tests
+        run: cd runpod-worker && python test_handler.py
 
       - name: Lint Dockerfile (informative)
         continue-on-error: true
