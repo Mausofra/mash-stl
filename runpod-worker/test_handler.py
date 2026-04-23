@@ -11,6 +11,15 @@ import inspect
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+# Mock de dependências pesadas antes de qualquer import do handler
+# (torch, huggingface_hub não estão disponíveis no ambiente de CI)
+for _mod in [
+    "torch", "torch.cuda",
+    "huggingface_hub",
+    "botocore", "botocore.exceptions",
+]:
+    sys.modules[_mod] = MagicMock()
+
 def run_tests():
     print("🧪 Iniciando bateria de testes estruturais do Handler...\n")
 
