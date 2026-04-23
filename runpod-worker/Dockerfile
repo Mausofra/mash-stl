@@ -1,11 +1,13 @@
+# ─────────────────────────────────────────────────────────────
 # Stage 1: Build CUDA extensions e Dependências (Blindado)
+# ─────────────────────────────────────────────────────────────
 FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9;9.0+PTX" \
     FORCE_CUDA=1 \
-    MAX_JOBS=1 \
+    MAX_JOBS=2 \
     PIP_NO_CACHE_DIR=1
 
 # Bibliotecas X11/Wayland para o motor do Blender (bpy)
@@ -31,9 +33,11 @@ RUN pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir "numpy<2" "diffusers<0.31"
 
 # Cirurgia no requirements.txt oficial
+# - Remove pacotes que já vêm na imagem base (torch, torchvision, etc.)
+# - Desfixa a versão do bpy (qualquer versão, ex: bpy==4.0, bpy==4.2.0, etc.)
 RUN tr -d '\r' < requirements.txt > req_clean.txt && \
     sed -i -E '/^(torch|torchvision|torchaudio|xformers|flash-attn|flash_attn|triton)/Id' req_clean.txt && \
-    sed -i 's/bpy==4\.0/bpy/g' req_clean.txt
+    sed -i -E 's/^bpy==[0-9.]+/bpy/Ig' req_clean.txt
 
 # Instalação segura (preferir binários, sem compilações pesadas)
 RUN pip install --no-cache-dir --prefer-binary --retries 5 --timeout 120 -r req_clean.txt
@@ -58,13 +62,23 @@ COPY requirements.txt /tmp/custom_reqs.txt
 RUN pip install --no-cache-dir -r /tmp/custom_reqs.txt
 
 # --- FIX CRÍTICO (SHIM): Compatibilidade para basicsr e libs legadas ---
-# Redireciona o functional_tensor (removido no torchvision>=0.17) para functional
+# torchvision>=0.17 removeu functional_tensor e functional_pil.
+# Criamos shims que redirecionam para o novo módulo functional.
 RUN SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
     mkdir -p "$SITE/torchvision/transforms" && \
     cat > "$SITE/torchvision/transforms/functional_tensor.py" <<'EOF'
 from torchvision.transforms.functional import *
 from torchvision.transforms.functional import rgb_to_grayscale
 EOF
+RUN SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
+    cat > "$SITE/torchvision/transforms/functional_pil.py" <<'EOF'
+from torchvision.transforms.functional import *
+EOF
+
+# Validar que o shim funciona ANTES de prosseguir (falha cedo se algo quebrar)
+RUN python -c "from torchvision.transforms.functional_tensor import rgb_to_grayscale; print('[shim] functional_tensor OK')" && \
+    python -c "from torchvision.transforms.functional_pil import to_grayscale; print('[shim] functional_pil OK')" && \
+    python -c "import basicsr.data.degradations; print('[basicsr] import OK')"
 
 # Compilar extensões CUDA usando os comandos oficiais da documentação v2.1
 RUN cd hy3dpaint/custom_rasterizer && pip install --no-build-isolation -e .
@@ -93,7 +107,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 libxext6 libxi6 libxkbcommon-x11-0 libxkbcommon0 libsm6 \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
 
-# Copiar o VENV completo (com todas as dependências, binários e o nosso SHIM)
+# Copiar o VENV completo (com todas as dependências, binários e os SHIMs)
 COPY --from=builder /opt/venv /opt/venv
 
 # Copiar código-fonte do Hunyuan3D-2.1
