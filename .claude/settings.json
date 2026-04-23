@@ -1,0 +1,8 @@
+{
+  "model": "sonnet",
+  "language": "pt-BR",
+  "showTurnDuration": true,
+  "env": {
+    "EDITOR": "code --wait"
+  }
+}
