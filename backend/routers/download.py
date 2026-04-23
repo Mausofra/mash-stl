@@ -5,6 +5,7 @@ Retorna o arquivo .obj gerado para download.
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, JSONResponse
 from routers.jobs import get_job
+from services.mesh import detect_mesh_format, media_type_for_mesh, extension_for_mesh
 
 router = APIRouter()
 
@@ -26,10 +27,16 @@ async def download_mesh(job_id: str):
     if not mesh_bytes:
         raise HTTPException(500, "Arquivo não disponível.")
 
-    filename = job.get("filename", f"{job_id}.obj")
+    filename = job.get("filename")
+
+    detected_fmt = detect_mesh_format(mesh_bytes)
+    media_type = media_type_for_mesh(detected_fmt)
+
+    if not filename:
+        filename = f"{job_id}.{extension_for_mesh(detected_fmt)}"
 
     return Response(
         content=mesh_bytes,
-        media_type="model/obj",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

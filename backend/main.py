@@ -15,7 +15,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="Mash STL API",
-    description="Backend para geração de modelos 3D via InstantMesh + RunPod",
+    description="Backend para geração de modelos 3D via Hunyuan3D-2 + RunPod",
     version="0.1.0",
     docs_url="/docs",
     redoc_url=None,

@@ -15,10 +15,6 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     ollama_model_vision: str = "qwen2.5vl:3b"
 
-    # RunPod — InstantMesh (legado)
-    instantmesh_runpod_url: str = ""   # https://api.runpod.ai/v2/<ID>/runsync
-    instantmesh_runpod_key: str = ""
-
     # RunPod — Hunyuan3D-2 (novo worker principal)
     hunyuan3d_runpod_url: str = ""     # https://api.runpod.ai/v2/<ID>/runsync
     hunyuan3d_runpod_key: str = ""
@@ -33,6 +29,12 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173"
     )
     max_upload_size_mb: int = 15
+
+    # Pre-processamento leve de imagem
+    preprocess_max_dim: int = 1024
+    preprocess_autocrop: bool = True
+    preprocess_pad_ratio: float = 0.08
+    preprocess_autocontrast: bool = True
 
     # Timeouts e polling
     ollama_timeout: int = 60
