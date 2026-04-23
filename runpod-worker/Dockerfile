@@ -8,7 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     MAX_JOBS=1 \
     PIP_NO_CACHE_DIR=1
 
-# Ajuste: Adicionadas TODAS as bibliotecas X11/Wayland para o motor do Blender (bpy)
+# Bibliotecas X11/Wayland para o motor do Blender (bpy)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git wget curl \
     libgl1 libglib2.0-0 libgomp1 \
@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv --system-site-packages /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# CORREÇÃO CRÍTICA: Apontando para o repositório oficial da v2.1
+# Repositório oficial da v2.1
 RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /Hunyuan3D-2.1
 WORKDIR /Hunyuan3D-2.1
 
@@ -57,6 +57,15 @@ RUN pip install --no-cache-dir \
 COPY requirements.txt /tmp/custom_reqs.txt
 RUN pip install --no-cache-dir -r /tmp/custom_reqs.txt
 
+# --- FIX CRÍTICO (SHIM): Compatibilidade para basicsr e libs legadas ---
+# Redireciona o functional_tensor (removido no torchvision>=0.17) para functional
+RUN SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
+    mkdir -p "$SITE/torchvision/transforms" && \
+    cat > "$SITE/torchvision/transforms/functional_tensor.py" <<'EOF'
+from torchvision.transforms.functional import *
+from torchvision.transforms.functional import rgb_to_grayscale
+EOF
+
 # Compilar extensões CUDA usando os comandos oficiais da documentação v2.1
 RUN cd hy3dpaint/custom_rasterizer && pip install --no-build-isolation -e .
 RUN cd hy3dpaint/DifferentiableRenderer && bash compile_mesh_painter.sh
@@ -78,14 +87,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     MAX_MESH_SIZE_MB=100 \
     PRELOAD_MODELS=false
 
-# Instalar APENAS bibliotecas de sistema necessárias para execução
-# Ajuste: Adicionadas TODAS as bibliotecas X11/Wayland para o motor do Blender (bpy)
+# Instalar APENAS bibliotecas de sistema necessárias para execução (com X11)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 libgomp1 wget curl \
     libxrender1 libxext6 libxi6 libxkbcommon-x11-0 libxkbcommon0 libsm6 \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
 
-# Copiar o VENV completo (com todas as dependências e binários compilados)
+# Copiar o VENV completo (com todas as dependências, binários e o nosso SHIM)
 COPY --from=builder /opt/venv /opt/venv
 
 # Copiar código-fonte do Hunyuan3D-2.1
