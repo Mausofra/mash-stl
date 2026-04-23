@@ -1,13 +1,11 @@
-```
 # Dependencies
 node_modules/
 
-# Build artifacts
-.tripo-studio-clone/node_modules/
-.tripo-studio-clone/.vite/
-
-# Package lock files
-package-lock.json
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
 
 # Environment variables
 .env
@@ -27,8 +25,10 @@ package-lock.json
 .DS_Store
 Thumbs.db
 
+# Test artifacts
+test_image.png
+
 # Build outputs
 dist/
 build/
 target/
-```
