@@ -63,15 +63,15 @@ RUN pip install --no-cache-dir -r /tmp/custom_reqs.txt
 
 # --- FIX CRÍTICO (SHIM): Compatibilidade para basicsr e libs legadas ---
 # torchvision>=0.17 removeu functional_tensor e functional_pil.
-# Criamos shims que redirecionam para o novo módulo functional.
-RUN SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
-    mkdir -p "$SITE/torchvision/transforms" && \
-    cat > "$SITE/torchvision/transforms/functional_tensor.py" <<'EOF'
+# Escrevemos os shims direto na pasta do torchvision instalado (não no venv),
+# pois o venv usa --system-site-packages e o pacote real fica na imagem base.
+RUN TV=$(python -c "import torchvision, os; print(os.path.dirname(torchvision.__file__))") && \
+    cat > "$TV/transforms/functional_tensor.py" <<'EOF'
 from torchvision.transforms.functional import *
 from torchvision.transforms.functional import rgb_to_grayscale
 EOF
-RUN SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
-    cat > "$SITE/torchvision/transforms/functional_pil.py" <<'EOF'
+RUN TV=$(python -c "import torchvision, os; print(os.path.dirname(torchvision.__file__))") && \
+    cat > "$TV/transforms/functional_pil.py" <<'EOF'
 from torchvision.transforms.functional import *
 EOF
 
