@@ -130,7 +130,7 @@ def _ensure_weights():
             resume_download=True,
             token=HF_TOKEN,
         )
-        open(marker, "w").close()
+        Path(marker).touch()
     except Exception as e:
         shutil.rmtree(WEIGHTS_PATH, ignore_errors=True)
         raise RuntimeError(f"Download dos pesos falhou: {e}")
@@ -141,8 +141,10 @@ def _ensure_weights():
 def _load_pipelines():
     global SHAPE_PIPELINE, PAINT_PIPELINE
     with _pipeline_lock:
-        if SHAPE_PIPELINE is not None:
+        if SHAPE_PIPELINE is not None and PAINT_PIPELINE is not None:
             return
+        SHAPE_PIPELINE = None
+        PAINT_PIPELINE = None
 
         logger.info("=== INÍCIO DO CARREGAMENTO DOS PIPELINES v2.1 ===")
         total_vram = 0.0
@@ -188,7 +190,7 @@ def _decode_image(image_b64: str) -> Image.Image:
         image_bytes = base64.b64decode(image_b64)
         if len(image_bytes) > MAX_IMAGE_SIZE_MB * 1024 * 1024:
             raise ValueError(f"Imagem excede limite de {MAX_IMAGE_SIZE_MB}MB")
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         
         max_dim = 1024
         if max(img.size) > max_dim:
@@ -297,16 +299,17 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                 logger.info("Aplicando textura PBR...")
                 # A v2.1 exige caminhos físicos para a imagem de referência e a malha crua
                 temp_work_dir = tempfile.mkdtemp()
-                temp_img_path = os.path.join(temp_work_dir, "input_ref.png")
-                temp_mesh_path = os.path.join(temp_work_dir, "shape_raw.obj")
-                
-                image.save(temp_img_path)
-                mesh.export(temp_mesh_path)
-                
-                # Executa a pintura PBR
-                mesh = PAINT_PIPELINE(temp_mesh_path, image_path=temp_img_path)
-                
-                shutil.rmtree(temp_work_dir, ignore_errors=True)
+                try:
+                    temp_img_path = os.path.join(temp_work_dir, "input_ref.png")
+                    temp_mesh_path = os.path.join(temp_work_dir, "shape_raw.obj")
+
+                    image.save(temp_img_path)
+                    mesh.export(temp_mesh_path)
+
+                    # Executa a pintura PBR
+                    mesh = PAINT_PIPELINE(temp_mesh_path, image_path=temp_img_path)
+                finally:
+                    shutil.rmtree(temp_work_dir, ignore_errors=True)
 
         output_dir = tempfile.mkdtemp(prefix="hunyuan3d_out_")
         mesh_path = _export_mesh(mesh, output_format, output_dir)
@@ -338,4 +341,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     logger.info("Inicializando worker Serverless...")
+    if os.getenv("PRELOAD_MODELS", "false").lower() == "true":
+        logger.info("PRELOAD_MODELS=true — carregando pipelines antes do primeiro job...")
+        _load_pipelines()
     runpod.serverless.start({"handler": handler, "refresh_worker": False})
