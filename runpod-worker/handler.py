@@ -50,13 +50,16 @@ HF_TOKEN = os.getenv("HF_TOKEN")  # Apenas para acelerar/autenticar o download d
 
 # Redireciona todo I/O pesado para o volume persistente
 # (HF baixa para /tmp antes de mover — sem isso enche o disco do container)
-_vol_tmp = os.path.join(VOLUME_PATH, "tmp")
-os.makedirs(_vol_tmp, exist_ok=True)
-os.environ["TMPDIR"] = _vol_tmp
-os.environ["TEMP"] = _vol_tmp
-os.environ["TMP"] = _vol_tmp
 import tempfile
-tempfile.tempdir = _vol_tmp
+_vol_tmp = os.path.join(VOLUME_PATH, "tmp")
+try:
+    os.makedirs(_vol_tmp, exist_ok=True)
+    os.environ["TMPDIR"] = _vol_tmp
+    os.environ["TEMP"] = _vol_tmp
+    os.environ["TMP"] = _vol_tmp
+    tempfile.tempdir = _vol_tmp
+except OSError:
+    pass  # Volume não montado (ex: CI) — usa /tmp padrão do sistema
 
 os.environ.setdefault("HF_HOME", os.path.join(VOLUME_PATH, ".cache", "huggingface"))
 os.environ.setdefault("HF_HUB_CACHE", os.path.join(VOLUME_PATH, ".cache", "huggingface", "hub"))
