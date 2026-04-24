@@ -309,6 +309,9 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
             if with_texture and PAINT_PIPELINE is not None:
                 logger.info("Aplicando textura PBR...")
+                # Libera VRAM do SHAPE_PIPELINE antes de rodar o PAINT_PIPELINE
+                # (RTX 4090 tem ~23.5GB usável mas shape ocupa ~20GB)
+                _cleanup_gpu()
                 # A v2.1 exige caminhos físicos para a imagem de referência e a malha crua
                 temp_work_dir = tempfile.mkdtemp()
                 try:

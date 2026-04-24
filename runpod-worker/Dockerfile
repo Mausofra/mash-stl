@@ -99,7 +99,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     VOLUME_PATH=/runpod-volume \
     MAX_IMAGE_SIZE_MB=5 \
     MAX_MESH_SIZE_MB=100 \
-    PRELOAD_MODELS=false
+    PRELOAD_MODELS=false \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Instalar APENAS bibliotecas de sistema necessárias para execução (com X11)
 RUN apt-get update && apt-get install -y --no-install-recommends \
