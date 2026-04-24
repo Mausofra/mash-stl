@@ -113,6 +113,18 @@ COPY --from=builder /opt/venv /opt/venv
 # Copiar código-fonte do Hunyuan3D-2.1
 COPY --from=builder /Hunyuan3D-2.1 /Hunyuan3D-2.1
 
+# Reaplicar shims do torchvision na imagem runtime
+# (o builder escreveu no sistema do builder — esta imagem tem seu próprio torchvision)
+RUN TV=$(python -c "import torchvision, os; print(os.path.dirname(torchvision.__file__))") && \
+    cat > "$TV/transforms/functional_tensor.py" <<'EOF'
+from torchvision.transforms.functional import *
+from torchvision.transforms.functional import rgb_to_grayscale
+EOF
+RUN TV=$(python -c "import torchvision, os; print(os.path.dirname(torchvision.__file__))") && \
+    cat > "$TV/transforms/functional_pil.py" <<'EOF'
+from torchvision.transforms.functional import *
+EOF
+
 # Criar diretório do volume persistente
 RUN mkdir -p /runpod-volume
 
