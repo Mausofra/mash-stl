@@ -187,15 +187,16 @@ def _load_pipelines():
             Hunyuan3DPaintConfig(max_num_view=6, resolution=1024)
         )
 
-        # Ajuste: Offload para GPUs menores (protegendo contra erros caso a função não exista)
-        if torch.cuda.is_available() and total_vram < 20.0:
-            logger.info("VRAM < 20GB. Ativando CPU offload para evitar Out of Memory.")
+        # CPU offload ativado para VRAM < 30GB (RTX 4090/3090/3080 etc).
+        # GPUs >= 30GB (RTX 5090, A100, H100) têm margem suficiente sem offload.
+        if torch.cuda.is_available() and total_vram < 30.0:
+            logger.info(f"VRAM {total_vram:.1f}GB < 30GB. Ativando CPU offload.")
             if hasattr(SHAPE_PIPELINE, 'enable_model_cpu_offload'):
                 SHAPE_PIPELINE.enable_model_cpu_offload()
             if hasattr(PAINT_PIPELINE, 'enable_model_cpu_offload'):
                 PAINT_PIPELINE.enable_model_cpu_offload()
         else:
-            logger.info("VRAM abundante. Mantendo modelos inteiramente na GPU.")
+            logger.info(f"VRAM {total_vram:.1f}GB >= 30GB. Mantendo modelos na GPU.")
 
 def _decode_image(image_b64: str) -> Image.Image:
     try:
