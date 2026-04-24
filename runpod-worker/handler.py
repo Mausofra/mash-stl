@@ -48,7 +48,16 @@ WEIGHTS_PATH = os.path.join(VOLUME_PATH, "Hunyuan3D-2.1")
 HF_REPO = "tencent/Hunyuan3D-2.1"
 HF_TOKEN = os.getenv("HF_TOKEN")  # Apenas para acelerar/autenticar o download dos pesos
 
-# Força cache do Hugging Face no volume persistente
+# Redireciona todo I/O pesado para o volume persistente
+# (HF baixa para /tmp antes de mover — sem isso enche o disco do container)
+_vol_tmp = os.path.join(VOLUME_PATH, "tmp")
+os.makedirs(_vol_tmp, exist_ok=True)
+os.environ["TMPDIR"] = _vol_tmp
+os.environ["TEMP"] = _vol_tmp
+os.environ["TMP"] = _vol_tmp
+import tempfile
+tempfile.tempdir = _vol_tmp
+
 os.environ.setdefault("HF_HOME", os.path.join(VOLUME_PATH, ".cache", "huggingface"))
 os.environ.setdefault("HF_HUB_CACHE", os.path.join(VOLUME_PATH, ".cache", "huggingface", "hub"))
 
