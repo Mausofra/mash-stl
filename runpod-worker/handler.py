@@ -164,7 +164,7 @@ def _load_pipelines():
         from textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
         
         # O pipeline de textura da v2.1 exige o modelo RealESRGAN_x4plus para upscale
-        esrgan_path = os.path.join(os.getcwd(), 'hy3dpaint', 'ckpt', 'RealESRGAN_x4plus.pth')
+        esrgan_path = os.path.join(os.getcwd(), 'ckpt', 'RealESRGAN_x4plus.pth')
         if not os.path.exists(esrgan_path):
             os.makedirs(os.path.dirname(esrgan_path), exist_ok=True)
             logger.info("Baixando RealESRGAN para o pipeline de textura PBR...")
