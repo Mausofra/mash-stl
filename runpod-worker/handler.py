@@ -191,10 +191,17 @@ def _load_pipelines():
         # GPUs >= 30GB (RTX 5090, A100, H100) têm margem suficiente sem offload.
         if torch.cuda.is_available() and total_vram < 30.0:
             logger.info(f"VRAM {total_vram:.1f}GB < 30GB. Ativando CPU offload.")
+            # SHAPE usa pipeline customizada — enable_model_cpu_offload pode falhar
             if hasattr(SHAPE_PIPELINE, 'enable_model_cpu_offload'):
-                SHAPE_PIPELINE.enable_model_cpu_offload()
+                try:
+                    SHAPE_PIPELINE.enable_model_cpu_offload()
+                except Exception as e:
+                    logger.warning(f"CPU offload não suportado no SHAPE_PIPELINE: {e}")
             if hasattr(PAINT_PIPELINE, 'enable_model_cpu_offload'):
-                PAINT_PIPELINE.enable_model_cpu_offload()
+                try:
+                    PAINT_PIPELINE.enable_model_cpu_offload()
+                except Exception as e:
+                    logger.warning(f"CPU offload não suportado no PAINT_PIPELINE: {e}")
         else:
             logger.info(f"VRAM {total_vram:.1f}GB >= 30GB. Mantendo modelos na GPU.")
 
@@ -310,8 +317,15 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
             if with_texture and PAINT_PIPELINE is not None:
                 logger.info("Aplicando textura PBR...")
-                # Libera VRAM do SHAPE_PIPELINE antes de rodar o PAINT_PIPELINE
-                # (RTX 4090 tem ~23.5GB usável mas shape ocupa ~20GB)
+                # Move componentes do SHAPE_PIPELINE para CPU para liberar VRAM
+                # (enable_model_cpu_offload não funciona nessa pipeline customizada)
+                for _attr in ('model', 'unet', 'vae', 'text_encoder'):
+                    _comp = getattr(SHAPE_PIPELINE, _attr, None)
+                    if _comp is not None and hasattr(_comp, 'to'):
+                        try:
+                            _comp.to('cpu')
+                        except Exception:
+                            pass
                 _cleanup_gpu()
                 # A v2.1 exige caminhos físicos para a imagem de referência e a malha crua
                 temp_work_dir = tempfile.mkdtemp()
