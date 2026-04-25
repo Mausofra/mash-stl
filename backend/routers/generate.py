@@ -94,6 +94,7 @@ async def generate(
 
 async def _run_job(job_id: str, prompt: Optional[str], image_bytes: bytes, extra_images: List[bytes], mime: str, quality: str):
     try:
+        settings = get_settings()
         mesh_params = QUALITY_PRESETS[quality]
         expected_s = QUALITY_EXPECTED_S[quality]
 
