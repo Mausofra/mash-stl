@@ -322,11 +322,13 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                 _load_paint()
                 logger.info("Aplicando textura PBR...")
 
-                temp_work_dir = tempfile.mkdtemp()
+                # Usa o diretório nativo do Hunyuan3D como cwd para os
+                # intermediários do paint — o pipeline resolve textured_mesh.obj
+                # relativo a dirname(mesh_path), que precisa ser local (não rede).
+                PAINT_WORK_DIR = "/Hunyuan3D-2.1"
+                temp_img_path  = os.path.join(PAINT_WORK_DIR, "_input_ref.png")
+                temp_mesh_path = os.path.join(PAINT_WORK_DIR, "_shape_raw.obj")
                 try:
-                    temp_img_path  = os.path.join(temp_work_dir, "input_ref.png")
-                    temp_mesh_path = os.path.join(temp_work_dir, "shape_raw.obj")
-
                     image.save(temp_img_path)
                     mesh.export(temp_mesh_path)
 
@@ -334,13 +336,16 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                     logger.info("Textura PBR concluída.")
 
                     if isinstance(paint_result, str):
-                        # Pipeline já exportou o arquivo — salva o caminho
                         paint_output_path = paint_result
                         logger.info(f"PAINT retornou arquivo: {paint_output_path}")
                     else:
                         mesh = paint_result
                 finally:
-                    shutil.rmtree(temp_work_dir, ignore_errors=True)
+                    for _f in [temp_img_path, temp_mesh_path]:
+                        try:
+                            os.unlink(_f)
+                        except OSError:
+                            pass
 
         output_dir = tempfile.mkdtemp(prefix="hunyuan3d_out_")
 
