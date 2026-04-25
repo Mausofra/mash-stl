@@ -189,21 +189,14 @@ def _load_pipelines():
 
         # CPU offload ativado para VRAM < 30GB (RTX 4090/3090/3080 etc).
         # GPUs >= 30GB (RTX 5090, A100, H100) têm margem suficiente sem offload.
+        # Estratégia de VRAM para GPUs < 30GB (ex: RTX 4090 com 24GB):
+        # - SHAPE roda na GPU (CPU offload não suportado pela pipeline customizada)
+        # - Após shape, componentes do shape são movidos para CPU manualmente
+        # - PAINT roda na GPU com VRAM liberada (sem CPU offload — seria muito lento)
         if torch.cuda.is_available() and total_vram < 30.0:
-            logger.info(f"VRAM {total_vram:.1f}GB < 30GB. Ativando CPU offload.")
-            # SHAPE usa pipeline customizada — enable_model_cpu_offload pode falhar
-            if hasattr(SHAPE_PIPELINE, 'enable_model_cpu_offload'):
-                try:
-                    SHAPE_PIPELINE.enable_model_cpu_offload()
-                except Exception as e:
-                    logger.warning(f"CPU offload não suportado no SHAPE_PIPELINE: {e}")
-            if hasattr(PAINT_PIPELINE, 'enable_model_cpu_offload'):
-                try:
-                    PAINT_PIPELINE.enable_model_cpu_offload()
-                except Exception as e:
-                    logger.warning(f"CPU offload não suportado no PAINT_PIPELINE: {e}")
+            logger.info(f"VRAM {total_vram:.1f}GB < 30GB. Gerenciamento manual de VRAM ativado.")
         else:
-            logger.info(f"VRAM {total_vram:.1f}GB >= 30GB. Mantendo modelos na GPU.")
+            logger.info(f"VRAM {total_vram:.1f}GB >= 30GB. VRAM suficiente para ambos os modelos.")
 
 def _decode_image(image_b64: str) -> Image.Image:
     try:
