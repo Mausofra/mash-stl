@@ -68,7 +68,9 @@ def run_tests():
     }
 
     # Interceptando as funções pesadas/externas
-    with patch('handler._load_pipelines') as mock_load, \
+    with patch('handler._load_shape'), \
+         patch('handler._unload_shape'), \
+         patch('handler._load_paint'), \
          patch('handler._check_disk_space', return_value=True), \
          patch('handler._upload_to_r2_and_get_url', return_value="https://fake-r2-url.com/model.zip"), \
          patch('handler.SHAPE_PIPELINE') as mock_shape, \
