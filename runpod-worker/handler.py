@@ -301,6 +301,8 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
         image = _decode_image(image_b64)
 
+        paint_output_path = None  # preenchido se PAINT_PIPELINE retornar caminho
+
         with _inference_lock:
             # ── Shape ──────────────────────────────────────────
             _load_shape()
@@ -315,7 +317,6 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
             # ── Textura ────────────────────────────────────────
             if with_texture:
-                # Descarrega SHAPE completamente para liberar VRAM antes do PAINT
                 _unload_shape()
 
                 _load_paint()
@@ -329,15 +330,30 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                     image.save(temp_img_path)
                     mesh.export(temp_mesh_path)
 
-                    mesh = PAINT_PIPELINE(temp_mesh_path, image_path=temp_img_path)
+                    paint_result = PAINT_PIPELINE(temp_mesh_path, image_path=temp_img_path)
                     logger.info("Textura PBR concluída.")
+
+                    if isinstance(paint_result, str):
+                        # Pipeline já exportou o arquivo — salva o caminho
+                        paint_output_path = paint_result
+                        logger.info(f"PAINT retornou arquivo: {paint_output_path}")
+                    else:
+                        mesh = paint_result
                 finally:
                     shutil.rmtree(temp_work_dir, ignore_errors=True)
 
         output_dir = tempfile.mkdtemp(prefix="hunyuan3d_out_")
-        mesh_path = _export_mesh(mesh, output_format, output_dir)
 
-        returned_format = "zip" if output_format == "obj" else output_format
+        if paint_output_path is not None:
+            # GLB já gerado pelo PAINT_PIPELINE — copiar para output_dir
+            src = Path(paint_output_path)
+            ext = src.suffix.lstrip('.') or "glb"
+            mesh_path = Path(output_dir) / f"output.{ext}"
+            shutil.copy2(str(src), str(mesh_path))
+            returned_format = ext
+        else:
+            mesh_path = _export_mesh(mesh, output_format, output_dir)
+            returned_format = "zip" if output_format == "obj" else output_format
 
         file_size_mb = mesh_path.stat().st_size / (1024 * 1024)
         if file_size_mb > MAX_MESH_SIZE_MB:
