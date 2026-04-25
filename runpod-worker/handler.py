@@ -280,18 +280,25 @@ def _upload_to_r2_and_get_url(file_path: Path, expiration_seconds: int = 86400) 
 def handler(job: Dict[str, Any]) -> Dict[str, Any]:
     job_input = job.get("input", {})
 
-    image_b64 = job_input.get("image")
-    if not image_b64:
-        return {"error": "Campo 'image' obrigatório."}
+    # Aceita "images" (lista, multi-view) ou "image" (legado, single-view)
+    images_b64 = job_input.get("images") or []
+    if not images_b64:
+        single = job_input.get("image")
+        if not single:
+            return {"error": "Campo 'image' ou 'images' obrigatório."}
+        images_b64 = [single]
+
+    image_b64 = images_b64[0]  # imagem principal (referência para o paint)
 
     output_format = job_input.get("format", "glb").lower()
     if output_format not in ("glb", "obj"):
         return {"error": "Formato inválido. Use 'glb' ou 'obj'."}
 
-    num_steps        = job_input.get("num_inference_steps", 100)
-    guidance_scale   = job_input.get("guidance_scale", 7.0)
+    num_steps         = job_input.get("num_inference_steps", 100)
+    guidance_scale    = job_input.get("guidance_scale", 7.0)
     octree_resolution = job_input.get("octree_resolution", 256)
-    with_texture     = job_input.get("texture", True)
+    with_texture      = job_input.get("texture", True)
+    prompt            = job_input.get("prompt", "")
 
     output_dir = None
 
@@ -301,18 +308,29 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
         image = _decode_image(image_b64)
 
+        # Decodifica imagens extras para multi-view (se houver)
+        if len(images_b64) > 1:
+            mv_images = [_decode_image(b) for b in images_b64]
+            logger.info("Multi-view: %d imagens fornecidas.", len(mv_images))
+        else:
+            mv_images = None
+
         paint_output_path = None  # preenchido se PAINT_PIPELINE retornar caminho
 
         with _inference_lock:
             # ── Shape ──────────────────────────────────────────
             _load_shape()
             logger.info("Iniciando inferência 3D (shape)...")
-            mesh = SHAPE_PIPELINE(
-                image=image,
+            shape_input = mv_images if mv_images is not None else image
+            shape_kwargs = dict(
+                image=shape_input,
                 num_inference_steps=num_steps,
                 guidance_scale=guidance_scale,
                 octree_resolution=octree_resolution,
-            )[0]
+            )
+            if prompt:
+                shape_kwargs["prompt"] = prompt
+            mesh = SHAPE_PIPELINE(**shape_kwargs)[0]
             logger.info("Shape concluído.")
 
             # ── Textura ────────────────────────────────────────

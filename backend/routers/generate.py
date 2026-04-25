@@ -7,7 +7,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
-from typing import Optional
+from typing import Optional, List
 
 from config import get_settings
 from services.ollama import image_to_prompt
@@ -34,10 +34,12 @@ QUALITY_EXPECTED_S = {"rapido": 60, "padrao": 180, "alta": 300}
 async def generate(
     prompt: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
+    extra_images: Optional[List[UploadFile]] = File(None),
     quality: str = Form("padrao"),
 ):
     """
-    Gera um modelo 3D a partir de uma imagem de referência.
+    Gera um modelo 3D a partir de uma ou mais imagens de referência.
+    extra_images: até 3 ângulos adicionais para multi-view.
     quality: 'rapido' | 'padrao' | 'alta'
     """
     if not image:
@@ -51,29 +53,45 @@ async def generate(
         raise HTTPException(400, f"quality inválido. Use: {', '.join(QUALITY_PRESETS)}")
 
     settings = get_settings()
-    image_bytes = await image.read()
+    size_limit = settings.max_upload_size_mb * 1024 * 1024
 
-    if len(image_bytes) > settings.max_upload_size_mb * 1024 * 1024:
+    image_bytes = await image.read()
+    if len(image_bytes) > size_limit:
         raise HTTPException(413, f"Imagem excede o limite de {settings.max_upload_size_mb} MB.")
 
-    image_bytes = preprocess_image(
-        image_bytes,
-        max_dim=settings.preprocess_max_dim,
-        autocrop=settings.preprocess_autocrop,
-        pad_ratio=settings.preprocess_pad_ratio,
-        apply_autocontrast=settings.preprocess_autocontrast,
-        use_rembg=settings.preprocess_rembg,
-    )
+    # Coleta e valida imagens extras (multi-view)
+    extra_bytes_list: List[bytes] = []
+    for extra in (extra_images or [])[:3]:
+        if extra.content_type not in ALLOWED_MIME:
+            continue
+        b = await extra.read()
+        if len(b) <= size_limit:
+            extra_bytes_list.append(b)
+
+    def _preprocess(raw: bytes) -> bytes:
+        return preprocess_image(
+            raw,
+            max_dim=settings.preprocess_max_dim,
+            autocrop=settings.preprocess_autocrop,
+            pad_ratio=settings.preprocess_pad_ratio,
+            apply_autocontrast=settings.preprocess_autocontrast,
+            use_rembg=settings.preprocess_rembg,
+        )
+
+    image_bytes = _preprocess(image_bytes)
+    extra_processed = [_preprocess(b) for b in extra_bytes_list]
 
     job_id = str(uuid.uuid4())
     create_job(job_id, status="processing", progress=0, error=None)
 
-    asyncio.create_task(_run_job(job_id, prompt, image_bytes, mime, quality))
+    asyncio.create_task(
+        _run_job(job_id, prompt, image_bytes, extra_processed, mime, quality)
+    )
 
     return JSONResponse({"job_id": job_id, "status": "processing"})
 
 
-async def _run_job(job_id: str, prompt: Optional[str], image_bytes: bytes, mime: str, quality: str):
+async def _run_job(job_id: str, prompt: Optional[str], image_bytes: bytes, extra_images: List[bytes], mime: str, quality: str):
     try:
         mesh_params = QUALITY_PRESETS[quality]
         expected_s = QUALITY_EXPECTED_S[quality]
@@ -91,6 +109,8 @@ async def _run_job(job_id: str, prompt: Optional[str], image_bytes: bytes, mime:
 
         mesh_bytes = await generate_mesh(
             image_bytes,
+            extra_images=extra_images,
+            prompt=prompt,
             on_progress=_on_progress,
             expected_seconds=expected_s,
             **mesh_params,

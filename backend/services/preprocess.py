@@ -31,8 +31,8 @@ _rembg_session = None
 def _get_rembg_session():
     global _rembg_session
     if _rembg_session is None:
-        _rembg_session = _new_session("u2net")
-        logger.info("Sessão rembg (u2net) inicializada.")
+        _rembg_session = _new_session("isnet-general-use")
+        logger.info("Sessão rembg (isnet-general-use) inicializada.")
     return _rembg_session
 
 
