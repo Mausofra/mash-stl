@@ -19,8 +19,12 @@ def postprocess_mesh(
     mesh_bytes: bytes,
     *,
     remove_fragments: bool = True,
-    fragment_threshold: float = 0.01,   # componentes com < 1% das faces são descartados
+    fragment_threshold: float = 0.01,
     fix_normals: bool = True,
+    fill_holes: bool = True,
+    smooth: bool = True,
+    smooth_iterations: int = 5,
+    smooth_lambda: float = 0.5,
     decimate: bool = False,
     target_faces: int = 100_000,
 ) -> bytes:
@@ -75,12 +79,31 @@ def postprocess_mesh(
                 removed = len(components) - len(kept)
                 logger.info("Fragmentos removidos: %d de %d componentes.", removed, len(components))
 
-    # 2. Corrige normais
+    # 2. Preenche buracos
+    if fill_holes:
+        before = len(mesh.faces)
+        trimesh.repair.fill_holes(mesh)
+        added = len(mesh.faces) - before
+        if added:
+            logger.info("Buracos preenchidos: +%d faces.", added)
+
+    # 3. Corrige normais
     if fix_normals:
         mesh.fix_normals()
         logger.info("Normais corrigidas.")
 
-    # 3. Decimation
+    # 4. Suavização Laplaciana (elimina facetamento dos triângulos)
+    if smooth:
+        trimesh.smoothing.filter_laplacian(
+            mesh,
+            lamb=smooth_lambda,
+            iterations=smooth_iterations,
+            implicit_time_integration=False,
+            volume_constraint=True,
+        )
+        logger.info("Suavização Laplaciana: %d iterações.", smooth_iterations)
+
+    # 5. Decimation
     if decimate and len(mesh.faces) > target_faces:
         try:
             ratio = target_faces / len(mesh.faces)

@@ -25,7 +25,7 @@ ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp"}
 QUALITY_PRESETS = {
     "rapido": dict(texture=False, num_inference_steps=30, octree_resolution=128),
     "padrao": dict(texture=True,  num_inference_steps=50, octree_resolution=256),
-    "alta":   dict(texture=True,  num_inference_steps=100, octree_resolution=256),
+    "alta":   dict(texture=True,  num_inference_steps=100, octree_resolution=384),
 }
 
 QUALITY_EXPECTED_S = {"rapido": 60, "padrao": 180, "alta": 300}
@@ -123,7 +123,11 @@ async def _run_job(job_id: str, prompt: Optional[str], image_bytes: bytes, extra
             mesh_bytes,
             remove_fragments=settings.postprocess_remove_fragments,
             fragment_threshold=settings.postprocess_fragment_threshold,
+            fill_holes=settings.postprocess_fill_holes,
             fix_normals=settings.postprocess_fix_normals,
+            smooth=settings.postprocess_smooth,
+            smooth_iterations=settings.postprocess_smooth_iterations,
+            smooth_lambda=settings.postprocess_smooth_lambda,
             decimate=settings.postprocess_decimate,
             target_faces=settings.postprocess_target_faces,
         )

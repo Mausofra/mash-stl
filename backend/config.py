@@ -39,8 +39,12 @@ class Settings(BaseSettings):
 
     # Pós-processamento de mesh (trimesh)
     postprocess_remove_fragments: bool = True
-    postprocess_fragment_threshold: float = 0.01   # < 1% das faces = fragmento
+    postprocess_fragment_threshold: float = 0.01
+    postprocess_fill_holes: bool = True
     postprocess_fix_normals: bool = True
+    postprocess_smooth: bool = False
+    postprocess_smooth_iterations: int = 5
+    postprocess_smooth_lambda: float = 0.5
     postprocess_decimate: bool = False
     postprocess_target_faces: int = 100_000
 
