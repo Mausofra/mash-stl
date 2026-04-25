@@ -55,15 +55,13 @@ def run_tests():
     # Payload simulado incluindo parâmetros da v2.1
     job_input = {
         "input": {
-            "image": fake_b64,
+            "images": [fake_b64, fake_b64],   # multi-view: 2 ângulos
+            "prompt": "a small red cube",
             "format": "obj",
             "texture": True,
             "num_inference_steps": 10,
             "guidance_scale": 7.0,
             "octree_resolution": 256,
-            "texture_resolution": 1024,
-            "tiled": False,
-            "pbr": True
         }
     }
 
