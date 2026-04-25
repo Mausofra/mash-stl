@@ -337,8 +337,20 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                     logger.info("Textura PBR concluída.")
 
                     if isinstance(paint_result, str):
-                        paint_output_path = paint_result
-                        logger.info(f"PAINT retornou arquivo: {paint_output_path}")
+                        result_path = Path(paint_result)
+                        # Pipeline retorna o OBJ intermediário mas exporta um GLB
+                        # no mesmo diretório com o mesmo nome base — preferir o GLB.
+                        glb_candidate = result_path.with_suffix('.glb')
+                        if glb_candidate.exists():
+                            paint_output_path = str(glb_candidate)
+                            logger.info(f"PAINT: GLB gerado em {paint_output_path}")
+                        elif result_path.exists():
+                            paint_output_path = str(result_path)
+                            logger.info(f"PAINT retornou arquivo: {paint_output_path}")
+                        else:
+                            raise RuntimeError(
+                                f"Output do PAINT não encontrado: {paint_result}"
+                            )
                     else:
                         mesh = paint_result
                 finally:
@@ -351,12 +363,17 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         output_dir = tempfile.mkdtemp(prefix="hunyuan3d_out_")
 
         if paint_output_path is not None:
-            # GLB já gerado pelo PAINT_PIPELINE — copiar para output_dir
             src = Path(paint_output_path)
             ext = src.suffix.lstrip('.') or "glb"
             mesh_path = Path(output_dir) / f"output.{ext}"
             shutil.copy2(str(src), str(mesh_path))
             returned_format = ext
+            # Remove intermediários do paint em PAINT_WORK_DIR para não acumular
+            for _leftover in [src, src.with_suffix('.obj'), src.with_suffix('.glb')]:
+                try:
+                    _leftover.unlink(missing_ok=True)
+                except OSError:
+                    pass
         else:
             mesh_path = _export_mesh(mesh, output_format, output_dir)
             returned_format = "zip" if output_format == "obj" else output_format
