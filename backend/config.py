@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     preprocess_autocontrast: bool = True
     preprocess_rembg: bool = True
 
+    # Pós-processamento de mesh (trimesh)
+    postprocess_remove_fragments: bool = True
+    postprocess_fragment_threshold: float = 0.01   # < 1% das faces = fragmento
+    postprocess_fix_normals: bool = True
+    postprocess_decimate: bool = False
+    postprocess_target_faces: int = 100_000
+
     # Timeouts e polling
     ollama_timeout: int = 60
     runpod_poll_interval: int = 5

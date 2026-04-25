@@ -14,6 +14,7 @@ from services.ollama import image_to_prompt
 from services.preprocess import preprocess_image
 from services.mesh import detect_mesh_format, extension_for_mesh
 from services.runpod import generate_mesh
+from services.postprocess import postprocess_mesh
 from routers.jobs import create_job, update_job
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,17 @@ async def _run_job(job_id: str, prompt: Optional[str], image_bytes: bytes, extra
             **mesh_params,
         )
 
-        update_job(job_id, progress=95)
+        update_job(job_id, progress=93)
+        mesh_bytes = postprocess_mesh(
+            mesh_bytes,
+            remove_fragments=settings.postprocess_remove_fragments,
+            fragment_threshold=settings.postprocess_fragment_threshold,
+            fix_normals=settings.postprocess_fix_normals,
+            decimate=settings.postprocess_decimate,
+            target_faces=settings.postprocess_target_faces,
+        )
+
+        update_job(job_id, progress=97)
         mesh_fmt = detect_mesh_format(mesh_bytes)
         mesh_ext = extension_for_mesh(mesh_fmt)
         filename = f"{job_id}.{mesh_ext}"
