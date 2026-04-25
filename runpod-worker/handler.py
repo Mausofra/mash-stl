@@ -326,6 +326,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                 # intermediários do paint — o pipeline resolve textured_mesh.obj
                 # relativo a dirname(mesh_path), que precisa ser local (não rede).
                 PAINT_WORK_DIR = "/Hunyuan3D-2.1"
+                os.makedirs(PAINT_WORK_DIR, exist_ok=True)
                 temp_img_path  = os.path.join(PAINT_WORK_DIR, "_input_ref.png")
                 temp_mesh_path = os.path.join(PAINT_WORK_DIR, "_shape_raw.obj")
                 try:
