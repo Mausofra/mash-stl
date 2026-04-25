@@ -322,11 +322,11 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
                 _load_paint()
                 logger.info("Aplicando textura PBR...")
 
-                # Usa o diretório nativo do Hunyuan3D como cwd para os
-                # intermediários do paint — o pipeline resolve textured_mesh.obj
-                # relativo a dirname(mesh_path), que precisa ser local (não rede).
-                PAINT_WORK_DIR = "/Hunyuan3D-2.1"
-                os.makedirs(PAINT_WORK_DIR, exist_ok=True)
+                # /tmp é disco local do container (não o volume de rede).
+                # O pipeline resolve textured_mesh.obj relativo a dirname(mesh),
+                # então manter os intermediários em /tmp garante que o arquivo
+                # esteja acessível quando formos copiar o GLB gerado.
+                PAINT_WORK_DIR = "/tmp"
                 temp_img_path  = os.path.join(PAINT_WORK_DIR, "_input_ref.png")
                 temp_mesh_path = os.path.join(PAINT_WORK_DIR, "_shape_raw.obj")
                 try:
